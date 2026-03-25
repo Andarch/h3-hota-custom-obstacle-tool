@@ -1,0 +1,3 @@
+LIBRARY hota_me
+EXPORTS
+    MainProc
