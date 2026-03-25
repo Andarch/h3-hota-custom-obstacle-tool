@@ -1,0 +1,23 @@
+# Build output
+Debug/
+Release/
+x64/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+.vs/
+
+# Compiled
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# Claude Code local settings
+.claude/
+
+# Exception: keep the proxy DLL stub if added
