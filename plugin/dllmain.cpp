@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "hook.h"
-#include "garrison.h"
+#include "objlimits.h"
 
 // ---------------------------------------------------------------------------
 // Add your hooks here.  Injected before the main thread starts, so hota_me.dll
@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 static void InitPlugin()
 {
-    InstallGarrisonHooks();
+    InstallObjectLimitHooks();
 }
 
 // ---------------------------------------------------------------------------
