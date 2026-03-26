@@ -247,16 +247,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
     std::string exePath = hotaDir + EDITOR_EXE;
 
-    // Launch the editor suspended so we can inject before any code runs.
+    // Launch the editor and wait until its message loop is running before injecting.
     STARTUPINFOA si = {};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi = {};
     if (!CreateProcessA(exePath.c_str(), nullptr, nullptr, nullptr, FALSE,
-                        CREATE_SUSPENDED, nullptr, hotaDir.c_str(), &si, &pi))
+                        0, nullptr, hotaDir.c_str(), &si, &pi))
     {
         MessageBoxA(nullptr, "Failed to launch " EDITOR_EXE ".", APP_NAME, MB_ICONERROR);
         return 1;
     }
+
+    // Block until the editor is idle (message loop running, window visible).
+    // This ensures the GUI thread is fully initialized before we inject,
+    // which prevents the keyboard-input routing issues caused by injecting
+    // into a suspended process before USER32 is set up on the main thread.
+    WaitForInputIdle(pi.hProcess, 10000);
 
     // Write the DLL path string into the target process.
     SIZE_T pathLen  = dllPath.size() + 1;
@@ -284,12 +290,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         return 1;
     }
 
-    // Wait for our DLL to finish loading, then resume the main thread.
+    // Wait for our DLL to finish loading.
     WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
     VirtualFreeEx(pi.hProcess, remoteStr, 0, MEM_RELEASE);
 
-    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return 0;
