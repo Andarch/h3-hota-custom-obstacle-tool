@@ -14,7 +14,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{4F2A1B3C-8D5E-4A7F-B9C2-1E6D0A3F7B8E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>HotaMapEdPlugin</RootNamespace>
+    <RootNamespace>plugin</RootNamespace>
     <TargetName>HotaMapEdPlugin</TargetName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>

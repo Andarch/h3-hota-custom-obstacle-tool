@@ -17,6 +17,9 @@ x64/
 *.dll
 *.exe
 
+# User config (auto-generated at runtime)
+*.ini
+
 # Claude Code local settings
 .claude/
 
