@@ -71,7 +71,126 @@ static std::string FindHotaDir()
         }
     }
 
-    // 4. Let the user browse
+    // 4. Scan Add/Remove Programs registry for any HotA / H3 installer entry.
+    //    Catches GOG, custom installers, and anything else that registers itself.
+    {
+        const struct { HKEY root; const char* key; } hives[] =
+        {
+            { HKEY_LOCAL_MACHINE,
+              "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" },
+            { HKEY_LOCAL_MACHINE,
+              "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall" },
+            { HKEY_CURRENT_USER,
+              "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" },
+        };
+        for (const auto& hive : hives)
+        {
+            HKEY hUninstall;
+            if (RegOpenKeyExA(hive.root, hive.key, 0,
+                              KEY_READ | KEY_ENUMERATE_SUB_KEYS, &hUninstall) != ERROR_SUCCESS)
+                continue;
+
+            char subkeyName[256];
+            for (DWORD i = 0; ; ++i)
+            {
+                DWORD nameLen = sizeof(subkeyName);
+                if (RegEnumKeyExA(hUninstall, i, subkeyName, &nameLen,
+                                  nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS)
+                    break;
+
+                HKEY hApp;
+                if (RegOpenKeyExA(hUninstall, subkeyName, 0, KEY_READ, &hApp) != ERROR_SUCCESS)
+                    continue;
+
+                char displayName[256] = {};
+                DWORD sz = sizeof(displayName);
+                RegQueryValueExA(hApp, "DisplayName", nullptr, nullptr,
+                                 reinterpret_cast<LPBYTE>(displayName), &sz);
+
+                bool relevant =
+                    strstr(displayName, "Horn of the Abyss") != nullptr ||
+                    strstr(displayName, "HotA")              != nullptr ||
+                    strstr(subkeyName,  "HotA")              != nullptr;
+
+                std::string location;
+                if (relevant)
+                {
+                    char loc[MAX_PATH] = {};
+                    sz = sizeof(loc);
+                    RegQueryValueExA(hApp, "InstallLocation", nullptr, nullptr,
+                                     reinterpret_cast<LPBYTE>(loc), &sz);
+                    if (loc[0]) location = loc;
+                }
+                RegCloseKey(hApp);
+
+                if (!location.empty())
+                {
+                    if (location.back() != '\\') location += '\\';
+                    if (HasEditor(location)) return location;
+                }
+            }
+            RegCloseKey(hUninstall);
+        }
+    }
+
+    // 5. Common install paths — based on known installer defaults.
+    //    HotA installs on top of Heroes 3 (no separate directory of its own).
+    //    The classic 3DO installer defaults to C:\3DO\Heroes3 or a user-chosen path.
+    //    GOG installs to C:\GOG Games\Heroes of Might and Magic 3 Complete HD.
+    //    Steam (HD Edition) installs under steamapps\common.
+    {
+        // Per-user paths: the 3DO installer lets users pick any location.
+        // Check %USERPROFILE% subdirectories commonly used for games.
+        char userProfile[MAX_PATH] = {};
+        SHGetFolderPathA(nullptr, CSIDL_PROFILE, nullptr, 0, userProfile);
+        if (userProfile[0])
+        {
+            std::string up = std::string(userProfile) + "\\";
+            const char* upRelative[] =
+            {
+                "Games\\3DO\\Heroes3\\",
+                "Games\\Heroes of Might and Magic 3 Complete HD\\",
+                "3DO\\Heroes3\\",
+            };
+            for (const char* rel : upRelative)
+            {
+                std::string p = up + rel;
+                if (HasEditor(p)) return p;
+            }
+        }
+
+        // System-level paths
+        const char* systemDirs[] =
+        {
+            "C:\\3DO\\Heroes3\\",
+            "C:\\GOG Games\\Heroes of Might and Magic 3 Complete HD\\",
+        };
+        for (const char* d : systemDirs)
+            if (HasEditor(d)) return d;
+
+        // Program Files — GOG and Steam both install here by default
+        char pf[MAX_PATH] = {}, pf86[MAX_PATH] = {};
+        SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILES,    nullptr, 0, pf);
+        SHGetFolderPathA(nullptr, CSIDL_PROGRAM_FILESX86, nullptr, 0, pf86);
+
+        const char* pfRelative[] =
+        {
+            "Heroes of Might and Magic 3 Complete HD\\",
+            "Heroes of Might and Magic III\\",
+            "Steam\\steamapps\\common\\Heroes of Might & Magic III - HD Edition\\",
+        };
+        for (const char* rel : pfRelative)
+        {
+            for (const char* base : { pf86, pf })
+            {
+                if (!base[0]) continue;
+                std::string p = std::string(base) + "\\" + rel;
+                if (HasEditor(p)) return p;
+            }
+        }
+    }
+
+    // 6. Let the user browse
     BROWSEINFOA bi = {};
     bi.lpszTitle = "Select the HotA installation folder (containing " EDITOR_EXE ")";
     bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
@@ -118,7 +237,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     {
         MessageBoxA(nullptr,
             "Could not find the HotA installation folder.\n\n"
-            "Add a line to " INI_FILE " next to the launcher:\n"
+            "Place the launcher in your HotA directory, or add a line to\n"
+            INI_FILE " next to the launcher:\n"
             "  [Settings]\n"
             "  HotaPath=C:\\Path\\To\\HotA",
             APP_NAME, MB_ICONERROR);
