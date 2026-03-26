@@ -85,7 +85,12 @@ static std::string FindHotaDir()
         {
             std::string p = browsed;
             if (p.back() != '\\') p += '\\';
-            if (HasEditor(p)) return p;
+            if (HasEditor(p))
+            {
+                WritePrivateProfileStringA("Settings", "HotaPath", p.c_str(),
+                    (launchDir + INI_FILE).c_str());
+                return p;
+            }
             MessageBoxA(nullptr,
                 EDITOR_EXE " was not found in the selected folder.",
                 APP_NAME, MB_ICONERROR);
