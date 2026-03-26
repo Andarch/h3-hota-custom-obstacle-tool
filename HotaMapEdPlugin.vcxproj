@@ -14,7 +14,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <ProjectGuid>{4F2A1B3C-8D5E-4A7F-B9C2-1E6D0A3F7B8E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>hota_me_dll</RootNamespace>
+    <RootNamespace>HotaMapEdPlugin</RootNamespace>
     <TargetName>HotaMapEdPlugin</TargetName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -77,11 +77,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="garrison.h" />
     <ClInclude Include="hook.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="garrison.cpp" />
     <ClCompile Include="hook.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

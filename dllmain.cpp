@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "hook.h"
+#include "garrison.h"
 
 // ---------------------------------------------------------------------------
 // Add your hooks here.  Injected before the main thread starts, so hota_me.dll
@@ -8,7 +9,7 @@
 // ---------------------------------------------------------------------------
 static void InitPlugin()
 {
-    // TODO: install hooks
+    InstallGarrisonHooks();
 }
 
 // ---------------------------------------------------------------------------
