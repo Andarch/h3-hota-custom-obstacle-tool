@@ -1,10 +1,25 @@
 #pragma once
 #include "pch.h"
 
-// Install a 5-byte JMP hook at `target`, redirecting execution to `hookFn`.
-// Saves the original 5 bytes into `originalBytes` (caller supplies >= 5 byte buffer).
-// Returns false if VirtualProtect fails.
-bool HookInstall(void* target, void* hookFn, BYTE* originalBytes = nullptr);
+struct HookSpec
+{
+    void* target;
+    const BYTE* expectedBytes;
+    SIZE_T expectedLength;
+};
 
-// Restore the original 5 bytes at `target` to remove the hook.
-bool HookRemove(void* target, const BYTE* originalBytes);
+enum class HookResult
+{
+    Success,
+    InvalidArguments,
+    UnexpectedBytes,
+    ProtectFailed,
+    RestoreProtectionFailed,
+    FlushInstructionCacheFailed,
+    RollbackFailed,
+};
+
+HookResult HookValidate(const HookSpec& spec);
+HookResult HookInstall(const HookSpec& spec, void* hookFn, BYTE originalBytes[5]);
+HookResult HookRemove(void* target, const BYTE originalBytes[5]);
+const char* HookResultName(HookResult result);
