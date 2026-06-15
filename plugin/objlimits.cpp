@@ -2,12 +2,11 @@
 #include "objlimits.h"
 #include "hook.h"
 
-// New per-map limit for all affected object types.
-static DWORD s_limit = 255;
+// New per-map limit for garrison objects.
+static DWORD s_garrisonLimit = 255;
 
 // The DWORD at [+0] in a type_info struct is a packed type+subId identifier.
-// For objects with subId=0 it equals the H3 type ID directly.
-// Colosseum of the Magi (type=0x90, subId=0x02) encodes as 0x00900002.
+// Garrison has type=0x21 and subId=0, so its packed identifier is 0x00000021.
 
 // ---------------------------------------------------------------------------
 // Create check  (sub_421222 @ 0x4212A4)
@@ -22,39 +21,19 @@ static DWORD s_createDeny  = 0x4212A9;
 __declspec(naked) static void CreateCheckHook()
 {
     __asm {
-        cmp     dword ptr [eax], 004h       ; Arena
-        je      cr_lim
-        cmp     dword ptr [eax], 017h       ; Marletto Tower
-        je      cr_lim
-        cmp     dword ptr [eax], 020h       ; Garden of Revelation
-        je      cr_lim
         cmp     dword ptr [eax], 021h       ; Garrison
-        je      cr_lim
-        cmp     dword ptr [eax], 029h       ; Library of Enlightenment
-        je      cr_lim
-        cmp     dword ptr [eax], 02Fh       ; School of Magic
-        je      cr_lim
-        cmp     dword ptr [eax], 033h       ; Mercenary Camp
-        je      cr_lim
-        cmp     dword ptr [eax], 03Dh       ; Star Axis
-        je      cr_lim
-        cmp     dword ptr [eax], 064h       ; Learning Stone
-        je      cr_lim
-        cmp     dword ptr [eax], 06Bh       ; School of War
-        je      cr_lim
-        cmp     dword ptr [eax], 00900002h  ; Colosseum of the Magi
-        je      cr_lim
+        jne     cr_other
+        cmp     ecx, dword ptr [s_garrisonLimit]
+        jb      cr_allow
+        mov     dword ptr [eax+8], 0FFh
+        jmp     cr_deny
+    cr_other:
         cmp     ecx, dword ptr [eax+8]
         jb      cr_allow
     cr_deny:
         jmp     dword ptr [s_createDeny]
     cr_allow:
         jmp     dword ptr [s_createAllow]
-    cr_lim:
-        cmp     ecx, dword ptr [s_limit]
-        jb      cr_allow
-        mov     dword ptr [eax+8], 0FFh
-        jmp     cr_deny
     }
 }
 
@@ -71,39 +50,19 @@ static DWORD s_placeDeny  = 0x426AFF;
 __declspec(naked) static void PlaceCheckHook()
 {
     __asm {
-        cmp     dword ptr [eax], 004h       ; Arena
-        je      pl_lim
-        cmp     dword ptr [eax], 017h       ; Marletto Tower
-        je      pl_lim
-        cmp     dword ptr [eax], 020h       ; Garden of Revelation
-        je      pl_lim
         cmp     dword ptr [eax], 021h       ; Garrison
-        je      pl_lim
-        cmp     dword ptr [eax], 029h       ; Library of Enlightenment
-        je      pl_lim
-        cmp     dword ptr [eax], 02Fh       ; School of Magic
-        je      pl_lim
-        cmp     dword ptr [eax], 033h       ; Mercenary Camp
-        je      pl_lim
-        cmp     dword ptr [eax], 03Dh       ; Star Axis
-        je      pl_lim
-        cmp     dword ptr [eax], 064h       ; Learning Stone
-        je      pl_lim
-        cmp     dword ptr [eax], 06Bh       ; School of War
-        je      pl_lim
-        cmp     dword ptr [eax], 00900002h  ; Colosseum of the Magi
-        je      pl_lim
+        jne     pl_other
+        cmp     ecx, dword ptr [s_garrisonLimit]
+        jb      pl_allow
+        mov     dword ptr [eax+8], 0FFh
+        jmp     pl_deny
+    pl_other:
         cmp     ecx, dword ptr [eax+8]
         jb      pl_allow
     pl_deny:
         jmp     dword ptr [s_placeDeny]
     pl_allow:
         jmp     dword ptr [s_placeAllow]
-    pl_lim:
-        cmp     ecx, dword ptr [s_limit]
-        jb      pl_allow
-        mov     dword ptr [eax+8], 0FFh
-        jmp     pl_deny
     }
 }
 
@@ -121,38 +80,18 @@ static DWORD s_predDeny  = 0x423485;
 __declspec(naked) static void PredCheckHook()
 {
     __asm {
-        cmp     dword ptr [esi], 004h       ; Arena
-        je      pr_lim
-        cmp     dword ptr [esi], 017h       ; Marletto Tower
-        je      pr_lim
-        cmp     dword ptr [esi], 020h       ; Garden of Revelation
-        je      pr_lim
         cmp     dword ptr [esi], 021h       ; Garrison
-        je      pr_lim
-        cmp     dword ptr [esi], 029h       ; Library of Enlightenment
-        je      pr_lim
-        cmp     dword ptr [esi], 02Fh       ; School of Magic
-        je      pr_lim
-        cmp     dword ptr [esi], 033h       ; Mercenary Camp
-        je      pr_lim
-        cmp     dword ptr [esi], 03Dh       ; Star Axis
-        je      pr_lim
-        cmp     dword ptr [esi], 064h       ; Learning Stone
-        je      pr_lim
-        cmp     dword ptr [esi], 06Bh       ; School of War
-        je      pr_lim
-        cmp     dword ptr [esi], 00900002h  ; Colosseum of the Magi
-        je      pr_lim
+        jne     pr_other
+        cmp     eax, dword ptr [s_garrisonLimit]
+        jnb     pr_deny
+        jmp     pr_allow
+    pr_other:
         cmp     eax, dword ptr [esi+8]
         jnb     pr_deny
     pr_allow:
         jmp     dword ptr [s_predAllow]
     pr_deny:
         jmp     dword ptr [s_predDeny]
-    pr_lim:
-        cmp     eax, dword ptr [s_limit]
-        jnb     pr_deny
-        jmp     pr_allow
     }
 }
 
