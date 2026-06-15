@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "objlimits.h"
 #include "hook.h"
+#include "target_profile.h"
+
+#include <string>
 
 // New per-map limit for garrison objects.
 static DWORD s_garrisonLimit = 255;
@@ -15,8 +18,8 @@ static DWORD s_garrisonLimit = 255;
 //   eax = type_info ptr, ecx = current count
 // ---------------------------------------------------------------------------
 static BYTE  s_createOrig[5];
-static DWORD s_createAllow = 0x4212D1;
-static DWORD s_createDeny  = 0x4212A9;
+static DWORD s_createAllow = 0;
+static DWORD s_createDeny  = 0;
 
 __declspec(naked) static void CreateCheckHook()
 {
@@ -44,8 +47,8 @@ __declspec(naked) static void CreateCheckHook()
 //   eax = type_info ptr, ecx = current count
 // ---------------------------------------------------------------------------
 static BYTE  s_placeOrig[5];
-static DWORD s_placeAllow = 0x426B27;
-static DWORD s_placeDeny  = 0x426AFF;
+static DWORD s_placeAllow = 0;
+static DWORD s_placeDeny  = 0;
 
 __declspec(naked) static void PlaceCheckHook()
 {
@@ -74,8 +77,8 @@ __declspec(naked) static void PlaceCheckHook()
 //   Note: jnb direction is reversed — deny if >= max.
 // ---------------------------------------------------------------------------
 static BYTE  s_predOrig[5];
-static DWORD s_predAllow = 0x4232DD;
-static DWORD s_predDeny  = 0x423485;
+static DWORD s_predAllow = 0;
+static DWORD s_predDeny  = 0;
 
 __declspec(naked) static void PredCheckHook()
 {
@@ -96,9 +99,81 @@ __declspec(naked) static void PredCheckHook()
 }
 
 // ---------------------------------------------------------------------------
-void InstallObjectLimitHooks()
+bool InstallObjectLimitHooks(const TargetProfile& profile, std::string& error)
 {
-    HookInstall(reinterpret_cast<void*>(0x4212A4), CreateCheckHook, s_createOrig);
-    HookInstall(reinterpret_cast<void*>(0x426AFA), PlaceCheckHook,  s_placeOrig);
-    HookInstall(reinterpret_cast<void*>(0x4232D4), PredCheckHook,   s_predOrig);
+    const ObjectLimitTargetProfile& target = profile.objectLimits;
+    const HookSite* sites[] =
+    {
+        &target.createCheck,
+        &target.placeCheck,
+        &target.predicateCheck,
+    };
+    void* hookFunctions[] =
+    {
+        CreateCheckHook,
+        PlaceCheckHook,
+        PredCheckHook,
+    };
+    BYTE* originalBytes[] =
+    {
+        s_createOrig,
+        s_placeOrig,
+        s_predOrig,
+    };
+
+    for (const HookSite* site : sites)
+    {
+        const HookSpec spec =
+        {
+            reinterpret_cast<void*>(site->address),
+            site->expectedBytes,
+            site->expectedLength,
+        };
+        const HookResult result = HookValidate(spec);
+        if (result != HookResult::Success)
+        {
+            error = std::string(site->name) + ": " + HookResultName(result);
+            return false;
+        }
+    }
+
+    s_createAllow = target.createAllow;
+    s_createDeny = target.createDeny;
+    s_predAllow = target.predicateAllow;
+    s_predDeny = target.predicateDeny;
+    s_placeAllow = target.placeAllow;
+    s_placeDeny = target.placeDeny;
+
+    size_t installedCount = 0;
+    for (; installedCount < _countof(sites); ++installedCount)
+    {
+        const HookSite& site = *sites[installedCount];
+        const HookSpec spec =
+        {
+            reinterpret_cast<void*>(site.address),
+            site.expectedBytes,
+            site.expectedLength,
+        };
+        const HookResult result =
+            HookInstall(spec, hookFunctions[installedCount], originalBytes[installedCount]);
+        if (result == HookResult::Success)
+            continue;
+
+        error = std::string(site.name) + ": " + HookResultName(result);
+        while (installedCount > 0)
+        {
+            --installedCount;
+            const HookResult rollback = HookRemove(
+                reinterpret_cast<void*>(sites[installedCount]->address),
+                originalBytes[installedCount]);
+            if (rollback != HookResult::Success)
+            {
+                error += std::string("; rollback failed for ") +
+                    sites[installedCount]->name + ": " + HookResultName(rollback);
+            }
+        }
+        return false;
+    }
+
+    return true;
 }

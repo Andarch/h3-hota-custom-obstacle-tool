@@ -1,24 +1,74 @@
 #include "pch.h"
-#include "hook.h"
+#include "logger.h"
 #include "objlimits.h"
+#include "plugin_api.h"
+#include "target_profile.h"
 
-// ---------------------------------------------------------------------------
-// Add your hooks here.  Injected before the main thread starts, so hota_me.dll
-// is already mapped — use GetModuleHandleA("hota_me.dll") to resolve addresses.
-// Do NOT call LoadLibrary or create windows here (still under loader lock).
-// ---------------------------------------------------------------------------
-static void InitPlugin()
+#include <string>
+
+namespace
 {
-    InstallObjectLimitHooks();
+    HMODULE s_pluginModule = nullptr;
+    volatile LONG s_initializeState = 0;
+    DWORD s_initializeResult = kPluginInitializeAlreadyFailed;
 }
 
-// ---------------------------------------------------------------------------
+#pragma comment(linker, "/EXPORT:HotaMapEdPluginInitialize=_HotaMapEdPluginInitialize@4")
+
+extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
+{
+    const LONG previousState = InterlockedCompareExchange(&s_initializeState, 1, 0);
+    if (previousState == 1)
+        return kPluginInitializeBusy;
+    if (previousState == 2)
+        return kPluginInitializeSuccess;
+    if (previousState == 3)
+        return s_initializeResult;
+
+    LoggerInitialize(s_pluginModule);
+    LogMessage("Starting explicit plugin initialization.");
+
+    char executableHash[65] = {};
+    if (!ComputeCurrentExecutableSha256(executableHash))
+    {
+        LogMessage("Failed to compute the target executable SHA-256.");
+        s_initializeResult = kPluginInitializeHashFailed;
+        InterlockedExchange(&s_initializeState, 3);
+        return s_initializeResult;
+    }
+    LogFormat("Target executable SHA-256: %s", executableHash);
+
+    const TargetProfile* profile = FindTargetProfile(executableHash);
+    if (!profile)
+    {
+        LogMessage("Unsupported target executable; no hooks were installed.");
+        s_initializeResult = kPluginInitializeUnsupportedTarget;
+        InterlockedExchange(&s_initializeState, 3);
+        return s_initializeResult;
+    }
+    LogFormat("Selected target profile: %s", profile->name);
+
+    std::string error;
+    if (!InstallObjectLimitHooks(*profile, error))
+    {
+        LogFormat("Garrison feature installation failed: %s", error.c_str());
+        s_initializeResult = kPluginInitializeHookFailed;
+        InterlockedExchange(&s_initializeState, 3);
+        return s_initializeResult;
+    }
+
+    LogMessage("Garrison feature installed successfully.");
+    s_initializeResult = kPluginInitializeSuccess;
+    InterlockedExchange(&s_initializeState, 2);
+    return s_initializeResult;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 {
     if (fdwReason == DLL_PROCESS_ATTACH)
     {
+        s_pluginModule = hModule;
         DisableThreadLibraryCalls(hModule);
-        InitPlugin();
     }
     return TRUE;
 }

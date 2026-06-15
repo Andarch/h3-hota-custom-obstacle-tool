@@ -2,6 +2,8 @@
 #include <shlobj.h>
 #include <string>
 
+#include "../plugin/plugin_api.h"
+
 #define APP_NAME    "HotaMapEdPlugin"
 #define EDITOR_EXE  "h3hota_maped.exe"
 #define PLUGIN_DLL  "HotaMapEdPlugin.dll"
@@ -219,6 +221,138 @@ static std::string FindHotaDir()
     return {};
 }
 
+static bool WaitForRemoteThread(HANDLE thread, DWORD& exitCode)
+{
+    return WaitForSingleObject(thread, INFINITE) == WAIT_OBJECT_0 &&
+        GetExitCodeThread(thread, &exitCode) != FALSE;
+}
+
+static const char* InitializeFailureMessage(DWORD result)
+{
+    switch (result)
+    {
+    case kPluginInitializeHashFailed:
+        return "The plugin could not hash the map editor executable.";
+    case kPluginInitializeUnsupportedTarget:
+        return "This map editor executable is not supported by the plugin.";
+    case kPluginInitializeHookFailed:
+        return "The plugin found unexpected hook bytes or could not install its hooks.";
+    case kPluginInitializeAlreadyFailed:
+        return "Plugin initialization previously failed.";
+    case kPluginInitializeBusy:
+        return "Plugin initialization is already in progress.";
+    default:
+        return "Plugin initialization returned an unknown error.";
+    }
+}
+
+static bool InjectAndInitializePlugin(
+    HANDLE process,
+    const std::string& dllPath,
+    std::string& error,
+    bool& targetStateUncertain)
+{
+    targetStateUncertain = false;
+
+    const SIZE_T pathLength = dllPath.size() + 1;
+    LPVOID remotePath = VirtualAllocEx(process, nullptr, pathLength,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remotePath)
+    {
+        error = "VirtualAllocEx failed.";
+        return false;
+    }
+
+    SIZE_T bytesWritten = 0;
+    if (!WriteProcessMemory(process, remotePath, dllPath.c_str(), pathLength, &bytesWritten) ||
+        bytesWritten != pathLength)
+    {
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        error = "WriteProcessMemory failed.";
+        return false;
+    }
+
+    FARPROC loadLibrary = GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
+    if (!loadLibrary)
+    {
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        error = "Could not resolve LoadLibraryA.";
+        return false;
+    }
+
+    HANDLE loadThread = CreateRemoteThread(process, nullptr, 0,
+        reinterpret_cast<LPTHREAD_START_ROUTINE>(loadLibrary), remotePath, 0, nullptr);
+    if (!loadThread)
+    {
+        VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+        error = "CreateRemoteThread for LoadLibraryA failed.";
+        return false;
+    }
+
+    DWORD remoteModule = 0;
+    const bool loadCompleted = WaitForRemoteThread(loadThread, remoteModule);
+    CloseHandle(loadThread);
+    VirtualFreeEx(process, remotePath, 0, MEM_RELEASE);
+    if (!loadCompleted || remoteModule == 0)
+    {
+        error = "Loading " PLUGIN_DLL " in the editor failed.";
+        return false;
+    }
+
+    HMODULE localModule = LoadLibraryExA(dllPath.c_str(), nullptr, DONT_RESOLVE_DLL_REFERENCES);
+    if (!localModule)
+    {
+        error = "Loading the local plugin image for export lookup failed.";
+        return false;
+    }
+
+    FARPROC localInitialize = GetProcAddress(localModule, kPluginInitializeExport);
+    if (!localInitialize)
+        localInitialize = GetProcAddress(localModule, "_HotaMapEdPluginInitialize@4");
+    if (!localInitialize)
+    {
+        FreeLibrary(localModule);
+        error = "The plugin initialization export was not found.";
+        return false;
+    }
+
+    const DWORD_PTR initializeOffset =
+        reinterpret_cast<DWORD_PTR>(localInitialize) - reinterpret_cast<DWORD_PTR>(localModule);
+    FreeLibrary(localModule);
+
+    const auto remoteInitialize = reinterpret_cast<LPTHREAD_START_ROUTINE>(
+        static_cast<DWORD_PTR>(remoteModule) + initializeOffset);
+    HANDLE initializeThread =
+        CreateRemoteThread(process, nullptr, 0, remoteInitialize, nullptr, 0, nullptr);
+    if (!initializeThread)
+    {
+        error = "CreateRemoteThread for plugin initialization failed.";
+        return false;
+    }
+
+    targetStateUncertain = true;
+    DWORD initializeResult = kPluginInitializeAlreadyFailed;
+    const bool initializeCompleted = WaitForRemoteThread(initializeThread, initializeResult);
+    CloseHandle(initializeThread);
+    if (!initializeCompleted)
+    {
+        error = "Waiting for plugin initialization failed.";
+        return false;
+    }
+    if (initializeResult != kPluginInitializeSuccess)
+    {
+        targetStateUncertain =
+            initializeResult != kPluginInitializeHashFailed &&
+            initializeResult != kPluginInitializeUnsupportedTarget;
+        error = InitializeFailureMessage(initializeResult);
+        error += "\n\nSee HotaMapEdPlugin.log next to the launcher for details.";
+        return false;
+    }
+
+    targetStateUncertain = false;
+    return true;
+}
+
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
     std::string launchDir = LauncherDir();
@@ -264,36 +398,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     // into a suspended process before USER32 is set up on the main thread.
     WaitForInputIdle(pi.hProcess, 10000);
 
-    // Write the DLL path string into the target process.
-    SIZE_T pathLen  = dllPath.size() + 1;
-    LPVOID remoteStr = VirtualAllocEx(pi.hProcess, nullptr, pathLen,
-                                      MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (!remoteStr)
+    std::string injectError;
+    bool targetStateUncertain = false;
+    if (!InjectAndInitializePlugin(pi.hProcess, dllPath, injectError, targetStateUncertain))
     {
-        TerminateProcess(pi.hProcess, 1);
-        CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
-        MessageBoxA(nullptr, "VirtualAllocEx failed.", APP_NAME, MB_ICONERROR);
+        if (targetStateUncertain)
+        {
+            TerminateProcess(pi.hProcess, 1);
+            injectError += "\n\nThe editor was closed because its patch state could not be proven safe.";
+        }
+        else
+        {
+            injectError += "\n\nThe editor will continue without the plugin.";
+        }
+        MessageBoxA(nullptr, injectError.c_str(), APP_NAME, MB_ICONERROR);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
         return 1;
     }
-    WriteProcessMemory(pi.hProcess, remoteStr, dllPath.c_str(), pathLen, nullptr);
-
-    // Call LoadLibraryA in the target process to load our plugin.
-    FARPROC loadLib = GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
-    HANDLE hThread  = CreateRemoteThread(pi.hProcess, nullptr, 0,
-        reinterpret_cast<LPTHREAD_START_ROUTINE>(loadLib), remoteStr, 0, nullptr);
-    if (!hThread)
-    {
-        VirtualFreeEx(pi.hProcess, remoteStr, 0, MEM_RELEASE);
-        TerminateProcess(pi.hProcess, 1);
-        CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
-        MessageBoxA(nullptr, "CreateRemoteThread failed.", APP_NAME, MB_ICONERROR);
-        return 1;
-    }
-
-    // Wait for our DLL to finish loading.
-    WaitForSingleObject(hThread, INFINITE);
-    CloseHandle(hThread);
-    VirtualFreeEx(pi.hProcess, remoteStr, 0, MEM_RELEASE);
 
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
