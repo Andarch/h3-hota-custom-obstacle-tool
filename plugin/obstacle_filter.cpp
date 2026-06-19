@@ -3,6 +3,7 @@
 
 #include "hook.h"
 #include "logger.h"
+#include "obstacle_classification.h"
 #include "target_profile.h"
 
 #include <cstdlib>
@@ -44,6 +45,7 @@ namespace
     DWORD s_extraBlockedRowCount = 0;
     bool s_workbookFilterEnabled = false;
     volatile LONG s_rejectedRows = 0;
+    volatile LONG s_generationFilterMode = 0;
 
     bool EnvValueEnabled(const char* value)
     {
@@ -187,7 +189,23 @@ namespace
         const bool workbookAllowed =
             !s_workbookFilterEnabled || kAllowedRandTrnRows[rowId] != 0;
         const bool extraBlocked = s_extraBlockedRandTrnRows[rowId] != 0;
-        if (!workbookAllowed || extraBlocked)
+        const auto mode = static_cast<ObstacleGenerationFilterMode>(
+            InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
+        const ObstacleThickness thickness = GetObstacleThicknessForRandTrnRow(rowId);
+        bool variantAllowed = true;
+        const char* variantReason = nullptr;
+        if (mode == ObstacleGenerationFilterMode::ThickOnly)
+        {
+            variantAllowed = thickness == ObstacleThickness::Thick;
+            variantReason = "thick-only";
+        }
+        else if (mode == ObstacleGenerationFilterMode::ThinOnly)
+        {
+            variantAllowed = thickness == ObstacleThickness::Thin;
+            variantReason = "thin-only";
+        }
+
+        if (!workbookAllowed || extraBlocked || !variantAllowed)
         {
             const LONG hit = InterlockedIncrement(&s_rejectedRows);
             if (hit <= 32)
@@ -195,7 +213,9 @@ namespace
                 LogFormat("Obstacle filter: rejected rand_trn rowId=%lu obstacleId=%lu reason=%s",
                     rowId,
                     rowId + 1,
-                    extraBlocked ? "extra-block-list" : "workbook-filter");
+                    extraBlocked ? "extra-block-list" :
+                        !workbookAllowed ? "workbook-filter" :
+                        variantReason ? variantReason : "variant-filter");
             }
             else if (hit == 33)
             {
@@ -203,7 +223,7 @@ namespace
             }
         }
 
-        return workbookAllowed && !extraBlocked;
+        return workbookAllowed && !extraBlocked && variantAllowed;
     }
 
     __declspec(naked) void HotaObstacleWeightPredicateHook()
@@ -275,4 +295,9 @@ bool InstallObstacleFilterHooks(std::string& error)
         s_workbookFilterEnabled ? "on" : "off",
         s_extraBlockedRowCount);
     return true;
+}
+
+void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
+{
+    InterlockedExchange(&s_generationFilterMode, static_cast<LONG>(mode));
 }

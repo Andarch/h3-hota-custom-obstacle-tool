@@ -75,11 +75,15 @@ Repository:
 
 Branch:
 
-`master`, tracking `origin/master`
+`codex/obstacle-row-filter`, tracking `origin/codex/obstacle-row-filter`
 
 Current HEAD:
 
-`dee97ea Raise per-map object limits to 255 for stat boosters and fix keyboard shortcuts`
+`45abad2 Add obstacle row filter hook`
+
+Draft PR:
+
+`https://github.com/Andarch/h3-hota-map-editor-plugin/pull/1`
 
 Important earlier commit:
 
@@ -88,27 +92,18 @@ Important earlier commit:
 The garrison-only implementation can be recovered from that commit. Do not
 blindly reset or revert the worktree; preserve the user's uncommitted work.
 
-### Current Dirty Worktree
+### Thick/Thin Follow-Up Work
 
-Modified tracked files:
+The follow-up work after `45abad2` adds thick/thin obstacle variant
+infrastructure:
 
-- `.github/copilot-instructions.md`
-- `.gitignore`
-- `launcher/launcher.cpp`
-- `plugin/dllmain.cpp`
-- `plugin/logger.cpp`
-- `plugin/plugin.vcxproj`
-- `plugin/target_profile.cpp`
-- `plugin/target_profile.h`
-
-Untracked source/docs expected to be committed with the obstacle-filter work:
-
-- `AGENTS.md`
-- `CODEX_HANDOFF.md`
-- `plugin/obstacle_diagnostics.cpp`
-- `plugin/obstacle_diagnostics.h`
-- `plugin/obstacle_filter.cpp`
-- `plugin/obstacle_filter.h`
+- `plugin/obstacle_classification.h`
+- `plugin/obstacle_classification.cpp`
+- `plugin/obstacle_variants.h`
+- `plugin/obstacle_variants.cpp`
+- `tools/generate_obstacle_classification.py`
+- updates to `plugin/dllmain.cpp`, `plugin/obstacle_filter.*`,
+  `plugin/plugin.vcxproj`, and this handoff file.
 
 Ignored local artifacts:
 
@@ -154,51 +149,20 @@ caused by the earlier suspended-process injection approach.
 
 ### Current Object-Limit Hooks
 
-`plugin/objlimits.cpp` still raises the limit to 255 for all of these:
+`plugin/objlimits.cpp` is now garrison-only. The unsafe primary-skill-booster
+limit increases are not active.
 
-- Arena
-- Marletto Tower
-- Garden of Revelation
-- Garrison
-- Library of Enlightenment
-- School of Magic
-- Mercenary Camp
-- Star Axis
-- Learning Stone
-- School of War
-- Colosseum of the Magi
-
-This is not the desired final behavior. Only Garrison should remain raised until
-another object type is independently proven safe.
-
-The current hooks also mutate `[type_info+8]` to `0xFF` when the custom limit is
-reached. Review whether that mutation is necessary before retaining it.
+The garrison hooks still mutate `[type_info+8]` to `0xFF` when the custom limit
+is reached. That behavior is inherited from the earlier working implementation;
+review whether the mutation is actually required before copying the pattern to
+any other feature.
 
 ### Current Obstacle Scaffold
 
-The uncommitted repeated-obstacle implementation compiles but is not a proven
-feature.
-
-Known problems:
-
-- `AlternateObjectsTxt::TryBuildAlternateObstacleCache()` is a placeholder and
-  always returns false because `kAlternateObjectsTxt` is empty.
-- `kCommandPlaceObstacleRepeated = 0xE100` collides with the standard MFC
-  `ID_FILE_NEW` command ID.
-- Rearming is triggered by every main-window `WM_LBUTTONUP`, not by a verified
-  successful obstacle-placement event.
-- Child-window mouse events may not reach the subclassed main window.
-- The displayed `Ctrl+Shift+O` text does not register a real accelerator.
-- The cache address `0x005A33B8`, cache structure, and `ObjectTemplateEntry`
-  size/layout are not sufficiently proven.
-- It swaps a whole global cache without proving that this is the safest or
-  correct control point.
-- It subclasses the first visible process window found, which is fragile.
-- It starts a thread from `DllMain`; initialization and UI work should be moved
-  to a safer lifecycle.
-
-Do not build further features on this scaffold without revalidating the native
-editor behavior and hook points.
+The old repeated-obstacle/cache-swapping scaffold was removed before
+`45abad2`. Do not resurrect that path without new evidence. Current obstacle
+work is based on the verified HotA row-predicate hook and new side-panel
+command plumbing.
 
 ## Target Binaries And Local Analysis Assets
 
@@ -666,6 +630,76 @@ Both builds succeeded on 2026-06-18 for the diagnostic pass, and again on
 ### UI And Validation Path
 
 - Vanilla obstacle command ID: `32927` (`Shift+O`).
+- Static UI resource findings from 2026-06-19:
+  - PE resource type `241`, ID `352`, is a toolbar template with one command:
+    `32927`.
+  - PE dialog resource ID `347` is the `TObstacleToolkit` side-panel dialog.
+    It has one static placeholder control at dialog units
+    `x=7, y=7, w=106, h=8`, control ID `1001`.
+  - `h3hota_maped.exe:0x00492680` constructs the obstacle toolkit. It creates
+    the one-button toolbar from resource `352` and a second toolbar from
+    resource `350`, then lays them out under the placeholder.
+  - Helper `h3hota_maped.exe:0x004C0C81` constructs the toolkit toolbar,
+    loads the toolbar resource, sends `TB_SETROWS` (`0x427`) to size it, and
+    moves the toolbar window to the returned rectangle.
+  - This matches the side-panel button in the screenshot whose tooltip is
+    `Place Obstacles [Shift+O]`.
+- Practical implication for thick/thin buttons:
+  - The new buttons should attach to the `TObstacleToolkit` side-panel, next to
+    the existing resource-352 toolbar button.
+  - Click handling should set a temporary filter mode and invoke command
+    `32927` through the same command path used by the existing side-panel
+    generation button.
+  - Do not model this as a separate obstacle-painting tool mode. The user flow
+    is: select obstacle tool, paint the area, then choose the normal/thick/thin
+    generation button in the side panel.
+
+Implementation scaffold added on 2026-06-19:
+
+- `plugin/obstacle_variants.cpp` discovers the side-panel toolbar containing
+  command `32927`.
+- It subclasses the toolkit panel and posts a private registered message so the
+  actual Thick/Thin button creation runs on the editor UI thread.
+- It uses command IDs `0x7001` and `0x7002` for the plugin's Thick/Thin side
+  buttons, avoiding the old `0xE100` MFC collision.
+- Clicking a variant button sets `ObstacleGenerationFilterMode::ThickOnly` or
+  `ObstacleGenerationFilterMode::ThinOnly`, sends the vanilla command `32927`
+  synchronously, then clears the mode.
+- The UI is enabled only when a generated thickness table is present, or when
+  `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANTS=1` is set for diagnostics. With the
+  current empty table, diagnostic buttons are disabled and show a message if
+  invoked programmatically.
+- `plugin/obstacle_classification.cpp` is currently a generated-table stub with
+  zero classified rows. It intentionally does not guess thickness.
+- `tools/generate_obstacle_classification.py` generates that C++ table from a
+  workbook with a `Thickness` column and a caller-supplied `rand_trn.txt` path.
+  It does not embed local `Games` or Google Drive paths.
+
+Generator command after the workbook is classified:
+
+```powershell
+& 'C:\Users\Andy\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
+  tools\generate_obstacle_classification.py `
+  --workbook 'C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx' `
+  --rand-trn 'C:\Users\Andy\Games\3DO\Heroes3\Data\rand_trn.txt' `
+  --output plugin\obstacle_classification.cpp
+```
+
+Current generator validation:
+
+- Against the present workbook, the generator fails as expected with
+  `workbook is missing required column(s): Thickness`.
+- Debug Win32 and Release Win32 builds pass with the scaffold in place.
+
+Still requiring runtime validation:
+
+- With a non-empty generated classification table, confirm that the Thick/Thin
+  buttons appear in the side panel after selecting the obstacle tool.
+- Confirm the button command path runs obstacle generation synchronously while
+  `ObstacleGenerationFilterMode` is set. If `32927` only posts later work, the
+  mode-clear point must move to the real completion path.
+- Confirm normal `Place Obstacles [Shift+O]` behavior is unchanged when variant
+  mode is inactive.
 - During drag preview, a wrapper previously named `sub_42A069` calls the real
   placement validator previously named `sub_42616A`.
 - `sub_42616A` appears to:
