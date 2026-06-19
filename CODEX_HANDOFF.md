@@ -75,15 +75,14 @@ Repository:
 
 Branch:
 
-`codex/obstacle-row-filter`, tracking `origin/codex/obstacle-row-filter`
+`main`, tracking `origin/main`
 
-Current HEAD:
+Branch policy:
 
-`45abad2 Add obstacle row filter hook`
-
-Draft PR:
-
-`https://github.com/Andarch/h3-hota-map-editor-plugin/pull/1`
+Keep active work on `main` unless the user explicitly asks for a separate
+branch. The previous `codex/phase-1-foundation` and
+`codex/obstacle-row-filter` branches were consolidated into `main` on
+2026-06-19.
 
 Important earlier commit:
 
@@ -94,7 +93,7 @@ blindly reset or revert the worktree; preserve the user's uncommitted work.
 
 ### Thick/Thin Follow-Up Work
 
-The follow-up work after `45abad2` adds thick/thin obstacle variant
+The follow-up work after the obstacle row filter adds thick/thin obstacle variant
 infrastructure:
 
 - `plugin/obstacle_classification.h`
@@ -159,10 +158,10 @@ any other feature.
 
 ### Current Obstacle Scaffold
 
-The old repeated-obstacle/cache-swapping scaffold was removed before
-`45abad2`. Do not resurrect that path without new evidence. Current obstacle
-work is based on the verified HotA row-predicate hook and new side-panel
-command plumbing.
+The old repeated-obstacle/cache-swapping scaffold was removed before the
+obstacle row-filter work was committed. Do not resurrect that path without new
+evidence. Current obstacle work is based on the verified HotA row-predicate hook
+and new side-panel command plumbing.
 
 ## Target Binaries And Local Analysis Assets
 
@@ -781,12 +780,12 @@ the primary context source going forward.
 
 ### Phase 1: Preserve And Correct Behavior
 
-1. Preserve the dirty worktree; do not delete the uncommitted obstacle files.
-2. Remove the unsafe skill-booster limit increases from active behavior.
-3. Keep and verify the garrison-only increase.
-4. Disable the unfinished repeated-obstacle feature from active initialization
-   until its design is revalidated.
-5. Add a smoke-test checklist for vanilla editor behavior and the garrison cap.
+1. Keep and verify the garrison-only increase.
+2. Keep the unsafe skill-booster limit increases out of active behavior.
+3. Keep the old repeated-obstacle/cache-swapping experiment deleted unless its
+   design is revalidated.
+4. Use the smoke-test checklist for vanilla editor behavior and the garrison
+   cap after significant changes.
 
 ### Phase 2: Harden The Plugin
 
