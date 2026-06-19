@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "logger.h"
 #include "objlimits.h"
+#include "obstacle_diagnostics.h"
+#include "obstacle_filter.h"
+#include "obstacle_variants.h"
 #include "plugin_api.h"
 #include "target_profile.h"
 
@@ -58,6 +61,55 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
     }
 
     LogMessage("Garrison feature installed successfully.");
+
+    if (ObstacleFilterEnabled() || ObstacleVariantsEnabled())
+    {
+        LogMessage("Obstacle filter hook requested by obstacle filter or variant settings.");
+        if (!InstallObstacleFilterHooks(error))
+        {
+            LogFormat("Obstacle filter installation failed: %s", error.c_str());
+            s_initializeResult = kPluginInitializeHookFailed;
+            InterlockedExchange(&s_initializeState, 3);
+            return s_initializeResult;
+        }
+    }
+    else
+    {
+        LogMessage("Obstacle filter disabled.");
+    }
+
+    if (ObstacleVariantsEnabled())
+    {
+        LogMessage("Obstacle variant UI requested.");
+        if (!StartObstacleVariantUi(error))
+        {
+            LogFormat("Obstacle variant UI startup failed: %s", error.c_str());
+            s_initializeResult = kPluginInitializeHookFailed;
+            InterlockedExchange(&s_initializeState, 3);
+            return s_initializeResult;
+        }
+    }
+    else
+    {
+        LogMessage("Obstacle variant UI disabled.");
+    }
+
+    if (ObstacleDiagnosticsEnabled())
+    {
+        LogMessage("Obstacle diagnostics requested by HOTA_MAPED_PLUGIN_DIAGNOSTICS.");
+        if (!InstallObstacleDiagnosticsHooks(error))
+        {
+            LogFormat("Obstacle diagnostics installation failed: %s", error.c_str());
+            s_initializeResult = kPluginInitializeHookFailed;
+            InterlockedExchange(&s_initializeState, 3);
+            return s_initializeResult;
+        }
+    }
+    else
+    {
+        LogMessage("Obstacle diagnostics disabled.");
+    }
+
     s_initializeResult = kPluginInitializeSuccess;
     InterlockedExchange(&s_initializeState, 2);
     return s_initializeResult;
