@@ -150,9 +150,8 @@ static std::string FindHotaDir()
             std::string up = std::string(userProfile) + "\\";
             const char* upRelative[] =
             {
-                "Games\\3DO\\Heroes3\\",
-                "Games\\Heroes of Might and Magic 3 Complete HD\\",
                 "3DO\\Heroes3\\",
+                "Heroes of Might and Magic 3 Complete HD\\",
             };
             for (const char* rel : upRelative)
             {

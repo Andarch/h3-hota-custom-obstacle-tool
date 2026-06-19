@@ -20,6 +20,12 @@ x64/
 # User config (auto-generated at runtime)
 *.ini
 
+# Local reverse-engineering/generated artifacts
+*.lod
+outputs/
+scratch/
+HANDOFF.md
+
 # Claude Code local settings
 .claude/
 

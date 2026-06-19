@@ -31,4 +31,5 @@ struct TargetProfile
 };
 
 bool ComputeCurrentExecutableSha256(char output[65]);
+bool ComputeFileSha256(const char* path, char output[65]);
 const TargetProfile* FindTargetProfile(const char* executableSha256);

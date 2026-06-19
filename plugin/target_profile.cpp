@@ -92,6 +92,14 @@ bool ComputeCurrentExecutableSha256(char output[65])
     if (length == 0 || length == MAX_PATH)
         return false;
 
+    return ComputeFileSha256(path, output);
+}
+
+bool ComputeFileSha256(const char* path, char output[65])
+{
+    if (!path || !output)
+        return false;
+
     BYTE hash[32] = {};
     if (!HashFile(path, hash))
         return false;
