@@ -86,6 +86,8 @@
     <ClInclude Include="hook.h" />
     <ClInclude Include="logger.h" />
     <ClInclude Include="objlimits.h" />
+    <ClInclude Include="obstacle_diagnostics.h" />
+    <ClInclude Include="obstacle_filter.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="plugin_api.h" />
     <ClInclude Include="target_profile.h" />
@@ -95,6 +97,8 @@
     <ClCompile Include="hook.cpp" />
     <ClCompile Include="logger.cpp" />
     <ClCompile Include="objlimits.cpp" />
+    <ClCompile Include="obstacle_diagnostics.cpp" />
+    <ClCompile Include="obstacle_filter.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
