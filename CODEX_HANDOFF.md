@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 ## Purpose
 
@@ -121,10 +121,10 @@ game assets and must not be committed.
 Both configurations build successfully when built sequentially:
 
 ```powershell
-& 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe' `
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
   HotaMapEdPlugin.sln /m:1 /p:Configuration=Debug /p:Platform=Win32 /v:minimal
 
-& 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe' `
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
   HotaMapEdPlugin.sln /m:1 /p:Configuration=Release /p:Platform=Win32 /v:minimal
 ```
 
@@ -616,15 +616,17 @@ Files added or changed during this diagnostic pass:
 Build verification after the diagnostic changes:
 
 ```powershell
-& 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe' `
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
   HotaMapEdPlugin.sln /m:1 /p:Configuration=Debug /p:Platform=Win32 /v:minimal
 
-& 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe' `
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
   HotaMapEdPlugin.sln /m:1 /p:Configuration=Release /p:Platform=Win32 /v:minimal
 ```
 
 Both builds succeeded on 2026-06-18 for the diagnostic pass, and again on
 2026-06-19 after adding the env-gated obstacle filter.
+They also succeeded on the new system on 2026-06-20 with Visual Studio 18
+Community at the path shown above.
 
 ### UI And Validation Path
 
