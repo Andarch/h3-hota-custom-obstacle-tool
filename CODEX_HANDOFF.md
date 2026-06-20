@@ -497,9 +497,13 @@ all rows in `rand_trn.txt`.
 
 Other data mismatches:
 
-- Workbook DEFs absent from `objects.txt`: `avlbon01.def`,
-  `avlglc01.def`, `avlglc02.def`, `avlglc03.def`, `avlglc04.def`,
-  `avlglc05.def`, `avlglc06.def`, and `avlmtwl7.def`.
+- Workbook DEFs absent from the installed `Data\objects.txt`:
+  `avlbon01.def`, `avlglc01.def`, `avlglc02.def`, `avlglc03.def`,
+  `avlglc04.def`, `avlglc05.def`, `avlglc06.def`, and `avlmtwl7.def`.
+  The six `avlglc*.def` glacier rows are now plugin-supplied during Thick
+  obstacle generation only; `avlbon01.def` is now plugin-supplied during Thin
+  obstacle generation; `avlmtwl7.def` remains missing until deliberately
+  supported.
 - Workbook row `avlr11r0.def` says Pile of Stones is object ID 140 subtype 4,
   but HotA 1.8.0 `objects.txt` has that DEF as object ID 152 subtype 4.
 
@@ -693,9 +697,10 @@ Implementation scaffold added on 2026-06-19 and DEF-aware filtering added on
 - Current generated table:
   - 844 workbook DEF classifications;
   - 844 generated DEF-name hashes;
-  - 8 workbook DEFs absent from HotA 1.8.0 `objects.txt`:
-    `avlbon01.def`, `avlglc01.def` through `avlglc06.def`, and
-    `avlmtwl7.def`.
+  - 7 plugin-supplied DEFs absent from HotA 1.8.0 `objects.txt`:
+    `avlbon01.def` and `avlglc01.def` through `avlglc06.def`;
+  - 1 workbook DEF still absent from HotA 1.8.0 `objects.txt` and not yet
+    plugin-supplied: `avlmtwl7.def`.
 - `plugin/obstacle_filter.cpp` keeps the HotA `rand_trn.txt` row predicate for
   the workbook allowlist and `HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS`
   diagnostics only. Thick/thin filtering moved out of that row hook because
@@ -771,9 +776,42 @@ Obstacle variants: installed side-panel buttons ... thicknessTable=available
   thick mountain candidates in the log.
 - Keyboard shortcuts remained working after clicking Thick/Thin once the plugin
   stopped forcing focus back to the side-panel toolbar.
+- Static follow-up on the Thin boundary gaps identified
+  `h3hota_maped.exe:0x0049DF11` as the native candidate scoring/overlap
+  function called from `sub_49E452` after the current DEF filter point. It reads
+  the candidate record's `rand_trn.txt` row pointer at record `+0x10`,
+  accumulates terrain weights, consults overlap/depth state for already placed
+  nearby objects, and returns a score. Scores `<= 0` are not accepted by the
+  caller at `0x0049E642`. This supports the current hypothesis that some Thin
+  gaps are caused by native overlap/depth scoring after our filter, not by
+  wrong workbook classification.
 - Detailed final-candidate accepted/rejected logs are now gated by
   `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1`; keep this off for ordinary
   manual testing because repeated clicks can produce large logs.
+- On 2026-06-20, trace-only instrumentation was added around the native
+  candidate score result at `h3hota_maped.exe:0x0049E642`. When
+  `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1` is set, the plugin logs a compact
+  per-`rand_trn.txt` row summary after each Thick/Thin command:
+  final candidates seen/allowed/rejected by the DEF filter, plus native score
+  results for candidates that passed the DEF filter. The stolen bytes are
+  `85 C0 89 45 94` (`test eax,eax; mov [ebp-6Ch],eax`), and the hook preserves
+  the original `jle` decision by restoring the flags immediately before
+  resuming at `0x0049E647`.
+- Runtime startup with trace enabled showed that HotA has already replaced
+  `0x0049E642` with a near jump into generated patch code. The trace hook now
+  supports this case by patching the live jump and chaining to HotA's generated
+  target after logging the score. Startup log example:
+
+```text
+Obstacle variants trace: native candidate score hook chained through HotA jump at 0049E642 ...
+Obstacle variants installed: ... trace=on scoreTrace=on
+```
+
+- Computer Use could list the editor windows on 2026-06-20, but the traced
+  editor window captured as a black surface and could not be activated
+  reliably. No runtime score summary has been captured yet; the next useful
+  runtime pass needs either reliable GUI control or one manual Thin generation
+  with `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1` enabled.
 - Remaining observed visual artifacts from a zoomed-out all-terrain test where
   every tile was painted: Thick filled terrain well overall, with water mostly
   filled but showing a few gaps. Thin filled terrain generally but left one-tile
@@ -781,6 +819,71 @@ Obstacle variants: installed side-panel buttons ... thicknessTable=available
   lava; the user also observed a mostly repeated one-tile vertical line of trees
   near the center boundary. Treat these as follow-up placement/candidate-order
   issues, not as evidence that the workbook DEF classification is wrong.
+- Static `rand_trn.txt` analysis strongly supports the native-score hypothesis:
+  many visually thin snow rows have very weak overlap matrices, for example
+  snow frozen lake/stump/shrub have `0` positive overlap entries and snow
+  outcropping/rock/mound/stone have only `4`, while snow mountain has `41` and
+  snow pine tree has `26`. The thin snow rows also have `-5000` overlap values
+  against tree-like rows. This explains why the default tool can fill some
+  tight boundary cells with trees while Thin leaves gaps after those tree DEFs
+  are filtered out.
+- Similar row-level patterns exist on other terrains: flat/crater/lake rows
+  often have `0..5` positive overlap entries, while tree/mountain/palm/rock
+  rows have much broader positive overlap. Letting "other thin objects" fill
+  those native boundary gaps would require changing the score/overlap behavior
+  for variant generation, not merely correcting the DEF classification table.
+- Some `rand_trn.txt` object families are mixed at the DEF level. Examples:
+  `(119,0)` has 40 thick and 1 thin DEF, `(140,2)` has 42 thick and 12 thin,
+  `(147,0)` has 7 thick and 21 thin, and several terrain decoration families
+  split thick/thin within the same ID/SubID. This is expected and is why the
+  final-candidate filter must remain DEF-key based. It also means a row-level
+  trace can show tree-like row names even when the final placed DEF is a
+  thin-classified visual variant.
+- The generator and enum now support a dormant `both` thickness value. Current
+  workbook data did not use it when regenerated, so current behavior should not
+  change. If trace evidence proves the native generator can only fill certain
+  thin-mode boundary cells with tree-like rows, `both` can be used as the small
+  fallback for selected terrain tree DEFs while still preferring a cleaner
+  native-candidate fix first.
+
+Extra object-template overlay support added on 2026-06-20:
+
+- The workbook includes `avlglc01.def` through `avlglc06.def` as thick glacier
+  mountains, object ID `140`, subtype `14`. These DEF files exist in the user's
+  extracted HotA 1.8.0 assets, and the extracted HotA 1.8.0 `edobjts.txt`
+  contains explicit object-template rows for them, but the installed
+  `Data\objects.txt` and `Data\rand_trn.txt` do not.
+- `AVLmtsn1.def` through `AVLmtsn6.def` are the existing snowy mountains. They
+  use the same terrain/visit/editor-section masks as the glacier rows, but use
+  object ID `134`, subtype `0`. Native `rand_trn.txt` row `57` (`snow
+  mountain`) is also object ID `134`, subtype `0`.
+- To avoid shipping a full custom `objects.txt` or expanding the 200-row
+  `rand_trn.txt` matrix, `plugin/obstacle_filter.cpp` now:
+  - redirects the editor `objects.txt` loader at `h3hota_maped.exe:0x004909C6`
+    only while Thick or Thin variant mode is active and an overlay row is needed;
+  - writes a temporary `Data\HotaMapEdPlugin_objects_<pid>.txt` copied from
+    the installed `Data\objects.txt`, with the row count incremented and only
+    the active mode's plugin-supplied rows appended, then passes only that
+    resource filename to the editor loader;
+  - captures the native snow-mountain row pointer at
+    `hota_me.dll:0x100D6DF4` while HotA assigns wrapper `+0x10`;
+  - assigns that captured row pointer to glacier wrappers at
+    `hota_me.dll:0x100D6E01` if HotA leaves their wrapper `+0x10` unset.
+- Glacier support is intentionally Thick-only. `avlbon01.def` is supplied only
+  during Thin mode and uses the same object-template masks and native
+  object/scoring identity as `avlbon02.def` (`139/22`), so no special
+  `rand_trn.txt` fallback is expected for it. Vanilla/default obstacle
+  generation continues to load the stock `objects.txt`. The overlay file is
+  deleted when variant generation finishes.
+- Important runtime correction: an earlier version wrote the overlay under
+  `%TEMP%` and passed the absolute path. The editor's ResourceManager treated
+  that as a text resource name and raised `ResourceManager::GetText could not
+  find the 'text' resource ...`, followed by a fatal runtime error. Keep the
+  overlay in `Data` and pass only the filename.
+- Startup smoke on 2026-06-20 verified the new hook sites install in Release:
+  `objectsOverlayRedirect=004909C6`, `hotaRowCapture=100D6DF4`, and
+  `hotaGlacierFallback=100D6E01`. Manual Thick generation later verified that
+  glacier DEFs appear in editor output.
 
 Runtime correction after visual Thick/Thin testing on 2026-06-20:
 
@@ -848,20 +951,39 @@ Generator command after the workbook is classified:
 
 Current generator validation:
 
-- The generator succeeds against the classified workbook and HotA 1.8.0
-  `objects.txt`, producing 844 classified DEF-name hashes.
+- After adding trace-only candidate-score instrumentation, dormant `both`
+  support, the Thick-only glacier overlay, and the Thin-only `avlbon01.def`
+  overlay, the generator still produced 844 classified DEF-name hashes. It now
+  reports 7 plugin-supplied DEFs (`avlbon01.def` plus `avlglc01.def` through
+  `avlglc06.def`) and only 1 unresolved `objects.txt` warning:
+  `avlmtwl7.def`.
+- Debug Win32 and Release Win32 both built successfully on 2026-06-20 after the
+  lingering map editor process was closed normally. A prior Debug build failed
+  with `LNK1168` while `Debug\HotaMapEdPlugin.dll` was still pinned by an open
+  editor process.
 - Debug Win32 and Release Win32 builds passed after the runtime registration
-  hook and focus fix were added. Rebuild again after any code changes; close
-  `h3hota_maped.exe` first because it pins the Debug DLL.
+  hook and focus fix were added. Debug and Release builds also passed after the
+  glacier overlay/fallback hooks were added. Rebuild again after any code
+  changes; close `h3hota_maped.exe` first because it pins the Debug DLL.
 
 Still requiring runtime validation:
 
 - Confirm normal `Place Obstacles [Shift+O]` behavior is unchanged when variant
   mode is inactive.
-- Investigate the Thin terrain-boundary gaps, especially the two-tile snow/lava
-  gap, and the repeated center tree line. Decide whether this needs a code
-  change, a workbook classification adjustment, or acceptance as native
-  generator behavior under a filtered candidate set.
+- Manually verify Thin generation can place `avlbon01.def`; no manual runtime
+  test has been done for that row yet.
+- Capture one trace-enabled Thin generation over the boundary-gap test area and
+  inspect the per-row summary. Rows with many `finalRejected` entries indicate
+  the generator is selecting native tree/mountain rows whose DEFs are mostly
+  filtered out; rows with many `scoreNonPositive` or `scoreHardReject` entries
+  indicate thin DEFs pass our filter but are rejected by native scoring.
+- Decide whether Thin boundary gaps should be fixed by:
+  - a narrow score/matrix adjustment while Thin mode is active, after trace
+    evidence proves the exact rejected rows; or
+  - marking selected terrain tree DEFs as `both` in the workbook as a simpler
+    fallback; or
+  - accepting the gaps as native generator behavior under a filtered candidate
+    set.
 - During drag preview, a wrapper previously named `sub_42A069` calls the real
   placement validator previously named `sub_42616A`.
 - `sub_42616A` appears to:

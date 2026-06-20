@@ -7,6 +7,7 @@ enum class ObstacleThickness : BYTE
     Unknown = 0,
     Thin = 1,
     Thick = 2,
+    Both = 3,
 };
 
 bool ObstacleThicknessTableAvailable();
