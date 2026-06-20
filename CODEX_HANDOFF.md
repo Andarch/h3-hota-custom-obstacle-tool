@@ -973,11 +973,19 @@ Current generator validation:
   hook and focus fix were added. Debug and Release builds also passed after the
   glacier overlay/fallback hooks were added. Rebuild again after any code
   changes; close `h3hota_maped.exe` first because it pins the Debug DLL.
+- On 2026-06-20, the workbook was updated so one-tile water rocks
+  `avlrfx06.def` and `AVLrk2w0.def` classify as Thick instead of Thin. The
+  generated classification changed exactly those two DEF hashes from `1` to
+  `2`, intended to reduce intermittent Thick-mode water gaps. Debug Win32 and
+  Release Win32 builds passed after regeneration. Manual runtime validation is
+  still pending. Thin terrain-border gaps are intentionally deferred.
 
 Still requiring runtime validation:
 
 - Confirm normal `Place Obstacles [Shift+O]` behavior is unchanged when variant
   mode is inactive.
+- Verify Thick generation on water after reclassifying `avlrfx06.def` and
+  `AVLrk2w0.def` as Thick.
 - Thin generation was manually verified to place `avlbon01.def` and
   `avlmtwl7.def`.
 - Debug Win32 and Release Win32 builds passed after the `avlmtwl7.def`
