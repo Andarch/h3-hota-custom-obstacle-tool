@@ -501,9 +501,8 @@ Other data mismatches:
   `avlbon01.def`, `avlglc01.def`, `avlglc02.def`, `avlglc03.def`,
   `avlglc04.def`, `avlglc05.def`, `avlglc06.def`, and `avlmtwl7.def`.
   The six `avlglc*.def` glacier rows are now plugin-supplied during Thick
-  obstacle generation only; `avlbon01.def` is now plugin-supplied during Thin
-  obstacle generation; `avlmtwl7.def` remains missing until deliberately
-  supported.
+  obstacle generation only. `avlbon01.def` and experimental `avlmtwl7.def`
+  support are now plugin-supplied during Thin obstacle generation.
 - Workbook row `avlr11r0.def` says Pile of Stones is object ID 140 subtype 4,
   but HotA 1.8.0 `objects.txt` has that DEF as object ID 152 subtype 4.
 
@@ -697,10 +696,10 @@ Implementation scaffold added on 2026-06-19 and DEF-aware filtering added on
 - Current generated table:
   - 844 workbook DEF classifications;
   - 844 generated DEF-name hashes;
-  - 7 plugin-supplied DEFs absent from HotA 1.8.0 `objects.txt`:
-    `avlbon01.def` and `avlglc01.def` through `avlglc06.def`;
-  - 1 workbook DEF still absent from HotA 1.8.0 `objects.txt` and not yet
-    plugin-supplied: `avlmtwl7.def`.
+  - 8 plugin-supplied DEFs absent from HotA 1.8.0 `objects.txt`:
+    `avlbon01.def`, `avlmtwl7.def`, and `avlglc01.def` through
+    `avlglc06.def`;
+  - 0 workbook DEFs missing from either `objects.txt` or the plugin overlay.
 - `plugin/obstacle_filter.cpp` keeps the HotA `rand_trn.txt` row predicate for
   the workbook allowlist and `HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS`
   diagnostics only. Thick/thin filtering moved out of that row hook because
@@ -872,9 +871,19 @@ Extra object-template overlay support added on 2026-06-20:
 - Glacier support is intentionally Thick-only. `avlbon01.def` is supplied only
   during Thin mode and uses the same object-template masks and native
   object/scoring identity as `avlbon02.def` (`139/22`), so no special
-  `rand_trn.txt` fallback is expected for it. Vanilla/default obstacle
-  generation continues to load the stock `objects.txt`. The overlay file is
-  deleted when variant generation finishes.
+  `rand_trn.txt` fallback is expected for it.
+- `avlmtwl7.def` is supplied only during Thin mode. It uses its extracted HotA
+  1.8.0 object-template row (`140/13`) and receives the native wasteland stone
+  row pointer by borrowing the row assigned to `AVLrws03.def` (`140/1`,
+  wasteland terrain `11`). This deliberately avoids thick mountain scoring for
+  the disconnected arch-shaped footprint.
+- Runtime/user verification on 2026-06-20 confirmed `avlbon01.def` and
+  `avlmtwl7.def` both generate in Thin mode. The arch behavior is accepted:
+  if the tile under the arch is painted along with the supports, the generator
+  may place a small one-tile object under it; if only the two support tiles are
+  painted, the arch can still generate cleanly without filling the center.
+- Vanilla/default obstacle generation continues to load the stock `objects.txt`.
+  The overlay file is deleted when variant generation finishes.
 - Important runtime correction: an earlier version wrote the overlay under
   `%TEMP%` and passed the absolute path. The editor's ResourceManager treated
   that as a text resource name and raised `ResourceManager::GetText could not
@@ -952,11 +961,10 @@ Generator command after the workbook is classified:
 Current generator validation:
 
 - After adding trace-only candidate-score instrumentation, dormant `both`
-  support, the Thick-only glacier overlay, and the Thin-only `avlbon01.def`
-  overlay, the generator still produced 844 classified DEF-name hashes. It now
-  reports 7 plugin-supplied DEFs (`avlbon01.def` plus `avlglc01.def` through
-  `avlglc06.def`) and only 1 unresolved `objects.txt` warning:
-  `avlmtwl7.def`.
+  support, the Thick-only glacier overlay, and the Thin-only `avlbon01.def` /
+  `avlmtwl7.def` overlay, the generator still produced 844 classified DEF-name
+  hashes. It now reports 8 plugin-supplied DEFs and 0 unresolved `objects.txt`
+  warnings.
 - Debug Win32 and Release Win32 both built successfully on 2026-06-20 after the
   lingering map editor process was closed normally. A prior Debug build failed
   with `LNK1168` while `Debug\HotaMapEdPlugin.dll` was still pinned by an open
@@ -970,8 +978,10 @@ Still requiring runtime validation:
 
 - Confirm normal `Place Obstacles [Shift+O]` behavior is unchanged when variant
   mode is inactive.
-- Manually verify Thin generation can place `avlbon01.def`; no manual runtime
-  test has been done for that row yet.
+- Thin generation was manually verified to place `avlbon01.def` and
+  `avlmtwl7.def`.
+- Debug Win32 and Release Win32 builds passed after the `avlmtwl7.def`
+  wasteland-stone fallback was added.
 - Capture one trace-enabled Thin generation over the boundary-gap test area and
   inspect the per-row summary. Rows with many `finalRejected` entries indicate
   the generator is selecting native tree/mountain rows whose DEFs are mostly

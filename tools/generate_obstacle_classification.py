@@ -58,6 +58,7 @@ PLUGIN_SUPPLIED_OBJECT_DEFS = {
     "avlglc04.def",
     "avlglc05.def",
     "avlglc06.def",
+    "avlmtwl7.def",
 }
 
 

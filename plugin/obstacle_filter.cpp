@@ -107,6 +107,7 @@ namespace
     const char* const kExtraThinObjectRows[] =
     {
         "AVLbon01.def 001111111111111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 100000100010 139 22 0 0",
+        "AVLMTWL7.def 010111111111111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 100000000000 140 13 0 0",
     };
 
     BYTE s_predicateOriginal[5] = {};
@@ -126,6 +127,7 @@ namespace
     DWORD s_nativeCandidateScoreResume = 0;
     DWORD s_finalCandidateReject = kFinalCandidateRejectTarget;
     DWORD s_snowMountainRowRecord = 0;
+    DWORD s_wastelandStoneRowRecord = 0;
     DWORD s_extraBlockedRowCount = 0;
     bool s_workbookFilterEnabled = false;
     bool s_variantTraceEnabled = false;
@@ -138,6 +140,7 @@ namespace
     volatile LONG s_observedCandidates = 0;
     volatile LONG s_rejectedCandidates = 0;
     volatile LONG s_glacierFallbackAssignments = 0;
+    volatile LONG s_archFallbackAssignments = 0;
     volatile LONG s_generationFilterMode = 0;
 
     struct VariantTraceRowStats
@@ -745,6 +748,38 @@ namespace
             subtype == 14;
     }
 
+    bool IsWastelandStoneWrapper(DWORD wrapper)
+    {
+        DWORD objectTemplate = 0;
+        DWORD firstTerrain = 0;
+        DWORD objectId = 0;
+        DWORD subtype = 0;
+        return SafeReadDword(wrapper, objectTemplate) &&
+            SafeReadDword(wrapper + 4, firstTerrain) &&
+            firstTerrain == 11 &&
+            objectTemplate != 0 &&
+            SafeReadDword(objectTemplate + 0x1C, objectId) &&
+            SafeReadDword(objectTemplate + 0x20, subtype) &&
+            objectId == 140 &&
+            subtype == 1;
+    }
+
+    bool IsWastelandArchWrapper(DWORD wrapper)
+    {
+        DWORD objectTemplate = 0;
+        DWORD firstTerrain = 0;
+        DWORD objectId = 0;
+        DWORD subtype = 0;
+        return SafeReadDword(wrapper, objectTemplate) &&
+            SafeReadDword(wrapper + 4, firstTerrain) &&
+            firstTerrain == 11 &&
+            objectTemplate != 0 &&
+            SafeReadDword(objectTemplate + 0x1C, objectId) &&
+            SafeReadDword(objectTemplate + 0x20, subtype) &&
+            objectId == 140 &&
+            subtype == 13;
+    }
+
     void __stdcall ObserveHotaParserWrapperRow(DWORD wrapper, DWORD rowRecord)
     {
         if (rowRecord == 0)
@@ -752,10 +787,10 @@ namespace
 
         const auto mode = static_cast<ObstacleGenerationFilterMode>(
             InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
-        if (mode != ObstacleGenerationFilterMode::ThickOnly)
-            return;
 
-        if (IsSnowMountainWrapper(wrapper) && s_snowMountainRowRecord == 0)
+        if (mode == ObstacleGenerationFilterMode::ThickOnly &&
+            IsSnowMountainWrapper(wrapper) &&
+            s_snowMountainRowRecord == 0)
         {
             s_snowMountainRowRecord = rowRecord;
             DWORD rowId = 0;
@@ -765,27 +800,64 @@ namespace
                 reinterpret_cast<void*>(rowRecord),
                 rowId);
         }
+
+        if (mode == ObstacleGenerationFilterMode::ThinOnly &&
+            IsWastelandStoneWrapper(wrapper) &&
+            s_wastelandStoneRowRecord == 0)
+        {
+            s_wastelandStoneRowRecord = rowRecord;
+            DWORD rowId = 0;
+            SafeReadDword(rowRecord, rowId);
+            LogFormat(
+                "Obstacle variants: captured wasteland stone rand_trn row for arch overlay rowRecord=%p rowId=%lu",
+                reinterpret_cast<void*>(rowRecord),
+                rowId);
+        }
     }
 
-    void __stdcall ApplyGlacierRandTrnFallback(DWORD wrapper)
+    void __stdcall ApplyExtraObjectRandTrnFallback(DWORD wrapper)
     {
         const auto mode = static_cast<ObstacleGenerationFilterMode>(
             InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
-        if (mode != ObstacleGenerationFilterMode::ThickOnly ||
-            s_snowMountainRowRecord == 0 ||
-            !IsGlacierWrapper(wrapper))
+
+        DWORD sourceRowRecord = 0;
+        bool isTarget = false;
+        const char* targetName = "";
+        const char* sourceName = "";
+        volatile LONG* assignmentCounter = nullptr;
+
+        if (mode == ObstacleGenerationFilterMode::ThickOnly &&
+            s_snowMountainRowRecord != 0 &&
+            IsGlacierWrapper(wrapper))
         {
-            return;
+            sourceRowRecord = s_snowMountainRowRecord;
+            isTarget = true;
+            targetName = "glacier";
+            sourceName = "snow mountain";
+            assignmentCounter = &s_glacierFallbackAssignments;
         }
+        else if (mode == ObstacleGenerationFilterMode::ThinOnly &&
+            s_wastelandStoneRowRecord != 0 &&
+            IsWastelandArchWrapper(wrapper))
+        {
+            sourceRowRecord = s_wastelandStoneRowRecord;
+            isTarget = true;
+            targetName = "wasteland arch";
+            sourceName = "wasteland stone";
+            assignmentCounter = &s_archFallbackAssignments;
+        }
+
+        if (!isTarget || sourceRowRecord == 0 || !assignmentCounter)
+            return;
 
         DWORD existingRow = 0;
         if (SafeReadDword(wrapper + 0x10, existingRow) && existingRow != 0)
             return;
 
-        if (!SafeWriteDword(wrapper + 0x10, s_snowMountainRowRecord))
+        if (!SafeWriteDword(wrapper + 0x10, sourceRowRecord))
             return;
 
-        const LONG hit = InterlockedIncrement(&s_glacierFallbackAssignments);
+        const LONG hit = InterlockedIncrement(assignmentCounter);
         if (hit <= 8)
         {
             DWORD objectTemplate = 0;
@@ -794,17 +866,20 @@ namespace
             SafeReadDword(wrapper, objectTemplate);
             if (objectTemplate)
                 SafeReadDword(objectTemplate, defKey);
-            SafeReadDword(s_snowMountainRowRecord, rowId);
+            SafeReadDword(sourceRowRecord, rowId);
             LogFormat(
-                "Obstacle variants: assigned glacier wrapper=%p template=%p defKey=%lu to snow mountain rand_trn rowId=%lu",
+                "Obstacle variants: assigned %s wrapper=%p template=%p defKey=%lu to %s rand_trn rowId=%lu",
+                targetName,
                 reinterpret_cast<void*>(wrapper),
                 reinterpret_cast<void*>(objectTemplate),
                 defKey,
+                sourceName,
                 rowId);
         }
         else if (hit == 9)
         {
-            LogMessage("Obstacle variants: further glacier rand_trn fallback logs suppressed.");
+            LogFormat("Obstacle variants: further %s rand_trn fallback logs suppressed.",
+                targetName);
         }
     }
 
@@ -877,7 +952,7 @@ namespace
             pushfd
             pushad
             push    ebx
-            call    ApplyGlacierRandTrnFallback
+            call    ApplyExtraObjectRandTrnFallback
             popad
             popfd
 
@@ -1357,7 +1432,9 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         InterlockedExchange(&s_observedCandidates, 0);
         InterlockedExchange(&s_rejectedCandidates, 0);
         InterlockedExchange(&s_glacierFallbackAssignments, 0);
+        InterlockedExchange(&s_archFallbackAssignments, 0);
         s_snowMountainRowRecord = 0;
+        s_wastelandStoneRowRecord = 0;
         ClearVariantTraceRows();
     }
 
