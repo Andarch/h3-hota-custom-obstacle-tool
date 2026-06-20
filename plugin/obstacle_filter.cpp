@@ -15,16 +15,35 @@ namespace
     constexpr char kFilterEnvVar[] = "HOTA_MAPED_PLUGIN_OBSTACLE_FILTER";
     constexpr char kExtraBlockedObstacleIdsEnvVar[] =
         "HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS";
+    constexpr char kVariantTraceEnvVar[] =
+        "HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE";
     constexpr char kExpectedHotaMeSha256[] =
         "3CE4489A0B891E35C13848C33D1124F750D1A0C96D0B52761CA87BFFF5BC0D8E";
     constexpr DWORD kHotaObstacleWeightPredicateRva = 0x000C53B0;
     constexpr DWORD kPredicateStolenLength = 6;
+    constexpr DWORD kObjectRecordAssignReturnSite = 0x0049061D;
+    constexpr DWORD kObjectRecordAssignReturnStolenLength = 5;
+    constexpr DWORD kFinalCandidateRecordSite = 0x0049E592;
+    constexpr DWORD kFinalCandidateRecordStolenLength = 5;
+    constexpr DWORD kFinalCandidateRejectTarget = 0x0049E69E;
 
     const BYTE kPredicateExpected[] =
     {
         0x8B, 0x41, 0x04,       // mov eax, [ecx+4]
         0x56,                   // push esi
         0x8B, 0x30,             // mov esi, [eax]
+    };
+
+    const BYTE kFinalCandidateRecordExpected[] =
+    {
+        0x8B, 0x40, 0x10,       // mov eax, [eax+10h]
+        0x3B, 0xC3,             // cmp eax, ebx
+    };
+
+    const BYTE kObjectRecordAssignReturnExpected[] =
+    {
+        0x8B, 0xF0,             // mov esi, eax
+        0x8D, 0x4D, 0xCC,       // lea ecx, [ebp-34h]
     };
 
     const BYTE kAllowedRandTrnRows[] =
@@ -40,11 +59,19 @@ namespace
     };
 
     BYTE s_predicateOriginal[5] = {};
+    BYTE s_objectRecordAssignReturnOriginal[5] = {};
+    BYTE s_finalCandidateRecordOriginal[5] = {};
     BYTE s_extraBlockedRandTrnRows[sizeof(kAllowedRandTrnRows)] = {};
     DWORD s_predicateResume = 0;
+    DWORD s_objectRecordAssignReturnResume = 0;
+    DWORD s_finalCandidateRecordResume = 0;
+    DWORD s_finalCandidateReject = kFinalCandidateRejectTarget;
     DWORD s_extraBlockedRowCount = 0;
     bool s_workbookFilterEnabled = false;
+    bool s_variantTraceEnabled = false;
     volatile LONG s_rejectedRows = 0;
+    volatile LONG s_observedCandidates = 0;
+    volatile LONG s_rejectedCandidates = 0;
     volatile LONG s_generationFilterMode = 0;
 
     bool EnvValueEnabled(const char* value)
@@ -70,6 +97,13 @@ namespace
             value,
             sizeof(value));
         return length > 0;
+    }
+
+    bool VariantTraceEnvEnabled()
+    {
+        char value[16] = {};
+        const DWORD length = GetEnvironmentVariableA(kVariantTraceEnvVar, value, sizeof(value));
+        return length > 0 && length < sizeof(value) && EnvValueEnabled(value);
     }
 
     bool SafeReadDword(DWORD address, DWORD& value)
@@ -189,23 +223,8 @@ namespace
         const bool workbookAllowed =
             !s_workbookFilterEnabled || kAllowedRandTrnRows[rowId] != 0;
         const bool extraBlocked = s_extraBlockedRandTrnRows[rowId] != 0;
-        const auto mode = static_cast<ObstacleGenerationFilterMode>(
-            InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
-        const ObstacleThickness thickness = GetObstacleThicknessForRandTrnRow(rowId);
-        bool variantAllowed = true;
-        const char* variantReason = nullptr;
-        if (mode == ObstacleGenerationFilterMode::ThickOnly)
-        {
-            variantAllowed = thickness == ObstacleThickness::Thick;
-            variantReason = "thick-only";
-        }
-        else if (mode == ObstacleGenerationFilterMode::ThinOnly)
-        {
-            variantAllowed = thickness == ObstacleThickness::Thin;
-            variantReason = "thin-only";
-        }
 
-        if (!workbookAllowed || extraBlocked || !variantAllowed)
+        if (!workbookAllowed || extraBlocked)
         {
             const LONG hit = InterlockedIncrement(&s_rejectedRows);
             if (hit <= 32)
@@ -214,8 +233,7 @@ namespace
                     rowId,
                     rowId + 1,
                     extraBlocked ? "extra-block-list" :
-                        !workbookAllowed ? "workbook-filter" :
-                        variantReason ? variantReason : "variant-filter");
+                        "workbook-filter");
             }
             else if (hit == 33)
             {
@@ -223,7 +241,83 @@ namespace
             }
         }
 
-        return workbookAllowed && !extraBlocked && variantAllowed;
+        return workbookAllowed && !extraBlocked;
+    }
+
+    bool __stdcall ShouldAllowFinalCandidateRecord(DWORD record)
+    {
+        const auto mode = static_cast<ObstacleGenerationFilterMode>(
+            InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
+        if (mode == ObstacleGenerationFilterMode::None)
+            return true;
+
+        DWORD objectTemplate = 0;
+        if (!SafeReadDword(record, objectTemplate))
+        {
+            const LONG hit = InterlockedIncrement(&s_rejectedCandidates);
+            if (hit <= 32)
+            {
+                LogFormat("Obstacle variants: rejected unreadable final candidate record=%p reason=%s",
+                    reinterpret_cast<void*>(record),
+                    mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" : "thin-only");
+            }
+            else if (hit == 33)
+            {
+                LogMessage("Obstacle variants: further candidate rejection logs suppressed.");
+            }
+            return false;
+        }
+
+        const ObstacleThickness thickness =
+            GetObstacleThicknessForObjectTemplate(objectTemplate);
+        const bool allowed =
+            mode == ObstacleGenerationFilterMode::ThickOnly
+                ? thickness == ObstacleThickness::Thick
+                : thickness == ObstacleThickness::Thin;
+
+        DWORD defKey = 0;
+        DWORD objectId = 0;
+        DWORD subtype = 0;
+        SafeReadDword(objectTemplate, defKey);
+        SafeReadDword(objectTemplate + 0x1C, objectId);
+        SafeReadDword(objectTemplate + 0x20, subtype);
+
+        const LONG seen = InterlockedIncrement(&s_observedCandidates);
+        if (s_variantTraceEnabled && seen <= 16)
+        {
+            LogFormat(
+                "Obstacle variants: observed final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu thickness=%s mode=%s",
+                reinterpret_cast<void*>(record),
+                reinterpret_cast<void*>(objectTemplate),
+                defKey,
+                objectId,
+                subtype,
+                ObstacleThicknessName(thickness),
+                mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" : "thin-only");
+        }
+
+        if (!allowed)
+        {
+            const LONG hit = InterlockedIncrement(&s_rejectedCandidates);
+            if (s_variantTraceEnabled && hit <= 32)
+            {
+                LogFormat(
+                    "Obstacle variants: rejected final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu thickness=%s reason=%s",
+                    reinterpret_cast<void*>(record),
+                    reinterpret_cast<void*>(objectTemplate),
+                    defKey,
+                    objectId,
+                    subtype,
+                    ObstacleThicknessName(thickness),
+                    mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" : "thin-only");
+            }
+            else if (s_variantTraceEnabled && hit == 33)
+            {
+                LogMessage("Obstacle variants: further candidate rejection logs suppressed.");
+            }
+        }
+
+        return allowed;
     }
 
     __declspec(naked) void HotaObstacleWeightPredicateHook()
@@ -249,6 +343,46 @@ namespace
             ret     4
         }
     }
+
+    __declspec(naked) void FinalCandidateRecordHook()
+    {
+        __asm
+        {
+            push    eax
+            pushad
+            push    dword ptr [esp+28]
+            call    ShouldAllowFinalCandidateRecord
+            test    al, al
+            popad
+            pop     eax
+            jz      reject
+
+            mov     eax, [eax+10h]
+            cmp     eax, ebx
+            jmp     dword ptr [s_finalCandidateRecordResume]
+
+        reject:
+            mov     [ebp-48h], edi
+            jmp     dword ptr [s_finalCandidateReject]
+        }
+    }
+
+    __declspec(naked) void ObjectRecordAssignReturnHook()
+    {
+        __asm
+        {
+            pushad
+            lea     edx, [ebp-64h]
+            push    edx
+            push    eax
+            call    RegisterObstacleTemplateDefName
+            popad
+
+            mov     esi, eax
+            lea     ecx, [ebp-34h]
+            jmp     dword ptr [s_objectRecordAssignReturnResume]
+        }
+    }
 }
 
 bool ObstacleFilterEnabled()
@@ -258,46 +392,126 @@ bool ObstacleFilterEnabled()
 
 bool InstallObstacleFilterHooks(std::string& error)
 {
-    HMODULE hotaMe = GetModuleHandleA("hota_me.dll");
-    if (!hotaMe)
+    const bool rowFilterEnabled = ObstacleFilterEnabled();
+    const bool candidateFilterEnabled = ObstacleThicknessTableAvailable();
+    if (!rowFilterEnabled && !candidateFilterEnabled)
     {
-        error = "hota_me.dll is not loaded";
-        return false;
+        LogMessage("Obstacle filter: no row or candidate hooks requested.");
+        return true;
     }
 
-    if (!ValidateHotaMeModule(hotaMe, error))
-        return false;
-
-    s_workbookFilterEnabled = WorkbookFilterEnvEnabled();
-    InitializeExtraBlockedRows();
-
-    BYTE* const moduleBase = reinterpret_cast<BYTE*>(hotaMe);
-    void* const predicate = moduleBase + kHotaObstacleWeightPredicateRva;
-    s_predicateResume = reinterpret_cast<DWORD>(predicate) + kPredicateStolenLength;
-
-    const HookSpec spec =
+    if (rowFilterEnabled)
     {
-        predicate,
-        kPredicateExpected,
-        sizeof(kPredicateExpected),
-    };
+        HMODULE hotaMe = GetModuleHandleA("hota_me.dll");
+        if (!hotaMe)
+        {
+            error = "hota_me.dll is not loaded";
+            return false;
+        }
 
-    const HookResult result =
-        HookInstall(spec, HotaObstacleWeightPredicateHook, s_predicateOriginal);
-    if (result != HookResult::Success)
-    {
-        error = std::string("HotA obstacle weight predicate: ") + HookResultName(result);
-        return false;
+        if (!ValidateHotaMeModule(hotaMe, error))
+            return false;
+
+        s_workbookFilterEnabled = WorkbookFilterEnvEnabled();
+        InitializeExtraBlockedRows();
+
+        BYTE* const moduleBase = reinterpret_cast<BYTE*>(hotaMe);
+        void* const predicate = moduleBase + kHotaObstacleWeightPredicateRva;
+        s_predicateResume = reinterpret_cast<DWORD>(predicate) + kPredicateStolenLength;
+
+        const HookSpec spec =
+        {
+            predicate,
+            kPredicateExpected,
+            sizeof(kPredicateExpected),
+        };
+
+        const HookResult result =
+            HookInstall(spec, HotaObstacleWeightPredicateHook, s_predicateOriginal);
+        if (result != HookResult::Success)
+        {
+            error = std::string("HotA obstacle weight predicate: ") + HookResultName(result);
+            return false;
+        }
+
+        LogFormat("Obstacle filter installed: predicate=%p workbookFilter=%s allowedRows=159 rejectedRows=41 extraBlockedRows=%lu",
+            predicate,
+            s_workbookFilterEnabled ? "on" : "off",
+            s_extraBlockedRowCount);
     }
 
-    LogFormat("Obstacle filter installed: predicate=%p workbookFilter=%s allowedRows=159 rejectedRows=41 extraBlockedRows=%lu",
-        predicate,
-        s_workbookFilterEnabled ? "on" : "off",
-        s_extraBlockedRowCount);
+    if (candidateFilterEnabled)
+    {
+        s_variantTraceEnabled = VariantTraceEnvEnabled();
+
+        void* const objectRecordAssignReturn =
+            reinterpret_cast<void*>(kObjectRecordAssignReturnSite);
+        s_objectRecordAssignReturnResume =
+            kObjectRecordAssignReturnSite + kObjectRecordAssignReturnStolenLength;
+
+        const HookSpec objectRecordSpec =
+        {
+            objectRecordAssignReturn,
+            kObjectRecordAssignReturnExpected,
+            sizeof(kObjectRecordAssignReturnExpected),
+        };
+
+        HookResult result =
+            HookInstall(
+                objectRecordSpec,
+                ObjectRecordAssignReturnHook,
+                s_objectRecordAssignReturnOriginal);
+        if (result != HookResult::Success)
+        {
+            error = std::string("map editor object DEF-key registration: ") +
+                HookResultName(result);
+            return false;
+        }
+
+        void* const predicate = reinterpret_cast<void*>(kFinalCandidateRecordSite);
+        s_finalCandidateRecordResume =
+            kFinalCandidateRecordSite + kFinalCandidateRecordStolenLength;
+
+        const HookSpec spec =
+        {
+            predicate,
+            kFinalCandidateRecordExpected,
+            sizeof(kFinalCandidateRecordExpected),
+        };
+
+        result =
+            HookInstall(spec, FinalCandidateRecordHook, s_finalCandidateRecordOriginal);
+        if (result != HookResult::Success)
+        {
+            error = std::string("map editor final obstacle candidate record: ") +
+                HookResultName(result);
+            const HookResult rollback =
+                HookRemove(objectRecordAssignReturn, s_objectRecordAssignReturnOriginal);
+            if (rollback != HookResult::Success)
+            {
+                error += std::string("; rollback failed for object DEF-key registration: ") +
+                    HookResultName(rollback);
+            }
+            return false;
+        }
+
+        LogFormat(
+            "Obstacle variants installed: objectDefRegistration=%p finalCandidateRecord=%p thicknessTable=available trace=%s",
+            objectRecordAssignReturn,
+            predicate,
+            s_variantTraceEnabled ? "on" : "off");
+    }
+
     return true;
 }
 
 void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
 {
+    if (mode != ObstacleGenerationFilterMode::None)
+    {
+        InterlockedExchange(&s_observedCandidates, 0);
+        InterlockedExchange(&s_rejectedCandidates, 0);
+    }
+
     InterlockedExchange(&s_generationFilterMode, static_cast<LONG>(mode));
 }

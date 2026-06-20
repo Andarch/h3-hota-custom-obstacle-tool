@@ -11,4 +11,6 @@ enum class ObstacleThickness : BYTE
 
 bool ObstacleThicknessTableAvailable();
 ObstacleThickness GetObstacleThicknessForRandTrnRow(DWORD rowId);
+void __stdcall RegisterObstacleTemplateDefName(DWORD objectTemplate, DWORD editorString);
+ObstacleThickness GetObstacleThicknessForObjectTemplate(DWORD objectTemplate);
 const char* ObstacleThicknessName(ObstacleThickness thickness);

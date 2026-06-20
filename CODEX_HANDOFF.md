@@ -655,26 +655,186 @@ Community at the path shown above.
     is: select obstacle tool, paint the area, then choose the normal/thick/thin
     generation button in the side panel.
 
-Implementation scaffold added on 2026-06-19:
+Implementation scaffold added on 2026-06-19 and DEF-aware filtering added on
+2026-06-20:
 
 - `plugin/obstacle_variants.cpp` discovers the side-panel toolbar containing
   command `32927`.
 - It subclasses the toolkit panel and posts a private registered message so the
-  actual Thick/Thin button creation runs on the editor UI thread.
+  actual Thick/Thin button creation runs on the editor UI thread, then restores
+  the original panel window procedure immediately.
 - It uses command IDs `0x7001` and `0x7002` for the plugin's Thick/Thin side
   buttons, avoiding the old `0xE100` MFC collision.
 - Clicking a variant button sets `ObstacleGenerationFilterMode::ThickOnly` or
-  `ObstacleGenerationFilterMode::ThinOnly`, sends the vanilla command `32927`
-  synchronously, then clears the mode.
+  `ObstacleGenerationFilterMode::ThinOnly`, sends the vanilla command `32927`,
+  then clears the mode.
+- The visible Thick/Thin controls are non-focus `STATIC` child controls with
+  `SS_NOTIFY`; they subclass only themselves for mouse clicks. The plugin no
+  longer persistently subclasses the editor's obstacle toolkit panel because
+  that broke keyboard shortcuts/accelerators during manual testing. Plain
+  static controls without `SS_NOTIFY` were not clickable.
 - The UI is enabled only when a generated thickness table is present, or when
-  `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANTS=1` is set for diagnostics. With the
-  current empty table, diagnostic buttons are disabled and show a message if
-  invoked programmatically.
-- `plugin/obstacle_classification.cpp` is currently a generated-table stub with
-  zero classified rows. It intentionally does not guess thickness.
-- `tools/generate_obstacle_classification.py` generates that C++ table from a
-  workbook with a `Thickness` column and a caller-supplied `rand_trn.txt` path.
-  It does not embed local `Games` or Google Drive paths.
+  `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANTS=1` is set for diagnostics.
+- `tools/generate_obstacle_classification.py` now generates a compact
+  DEF-name classification table from:
+  - the user-curated `obstacles.xlsx` with `Def` and `Thickness` columns;
+  - the local HotA 1.8.0 `objects.txt`, used only as a warning/sanity source
+    for workbook DEFs that are not in that file.
+- The generated table is numeric `FNV-1a(lowercase DEF filename) -> thickness`;
+  it does not embed local paths, raw `objects.txt` rows, workbook rows, or DEF
+  filenames.
+- The plugin registers the editor's runtime `DEF key -> thickness` mapping
+  while `objects.txt` is parsed. Do not try to reproduce the editor's private
+  DEF-key assignment offline from file order.
+- The thick/thin lookup intentionally does not use `(object ID, subtype)` as
+  the discriminator. Multiple visual variants can share those values, and at
+  least one workbook/editor mismatch (`avlr11r0.def`) would be dropped by an
+  exact ID/subtype match.
+- Current generated table:
+  - 844 workbook DEF classifications;
+  - 844 generated DEF-name hashes;
+  - 8 workbook DEFs absent from HotA 1.8.0 `objects.txt`:
+    `avlbon01.def`, `avlglc01.def` through `avlglc06.def`, and
+    `avlmtwl7.def`.
+- `plugin/obstacle_filter.cpp` keeps the HotA `rand_trn.txt` row predicate for
+  the workbook allowlist and `HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS`
+  diagnostics only. Thick/thin filtering moved out of that row hook because
+  row identity is too coarse.
+
+Rejected hook attempt:
+
+- `h3hota_maped.exe:0x004AF82F` was statically identified as a candidate
+  predicate with object-template access, but runtime testing showed it is not
+  in the live obstacle generation path reached by the side-panel command.
+- Do not use `0x004AF82F` for thick/thin filtering without new runtime evidence.
+
+Current DEF-aware registration and final-candidate hooks:
+
+- runtime registration hook site: `h3hota_maped.exe:0x0049061D`;
+- expected first bytes:
+
+```asm
+8B F0           mov  esi, eax
+8D 4D CC        lea  ecx, [ebp-34h]
+```
+
+- this site is immediately after `sub_490162(a2, Buf2)` returns in the
+  `objects.txt` row parser `sub_490543`;
+- at that point, `eax` is the object-template pointer and `[ebp-64h]` is the
+  editor's small-string object containing the DEF filename;
+- the hook registers the object template's actual `+0x00` DEF key against the
+  generated DEF-name hash table, then emulates the two stolen instructions and
+  resumes at `0x00490622`;
+- status: runtime verified on 2026-06-20. Temporary diagnostics showed real
+  DEF names being registered, for example `avlautr0.def` as thick and
+  `avlbuzr0.def` as thin.
+
+- hook site: `h3hota_maped.exe:0x0049E592`;
+- expected first bytes:
+
+```asm
+8B 40 10        mov  eax, [eax+10h]
+3B C3           cmp  eax, ebx
+```
+
+- before the hook, `eax` is the final candidate record and `edi` has already
+  loaded `record[+0x00]`, the copied object-template pointer;
+- record `+0x00` is the copied object-template pointer;
+- record `+0x10` is the HotA expanded `rand_trn.txt` row pointer;
+- object template `+0x00` is the DEF-derived key;
+- object template `+0x1C` is object ID;
+- object template `+0x20` is subtype;
+- disallowed Thick/Thin candidates jump to `0x0049E69E`, matching the nearby
+  native rejection/continue path used by row equality and terrain-weight
+  rejection.
+
+Runtime verified on 2026-06-20:
+
+- Debug startup/injection succeeded on the new system.
+- The earlier candidate hook installed at `0x004AF82F`, but later manual
+  testing showed no candidate observations/rejections there.
+- The runtime DEF-key registration hook installed at `0x0049061D`.
+- The corrected final-candidate hook installed at `0x0049E592` with the
+  generated table present.
+- The obstacle variant UI thread started and created the side-panel Thick/Thin
+  controls:
+
+```text
+Obstacle variants installed: objectDefRegistration=0049061D finalCandidateRecord=0049E592 thicknessTable=available trace=off
+Obstacle variants: installed side-panel buttons ... thicknessTable=available
+```
+- Manual Thick generation on the user's four-terrain test area produced
+  visually thick results with the expected sand and snow mountain families,
+  plus dense trees/mountains. The user described it as doing "a pretty good
+  job".
+- Manual Thin generation produced visually thin/sparse results and rejected
+  thick mountain candidates in the log.
+- Keyboard shortcuts remained working after clicking Thick/Thin once the plugin
+  stopped forcing focus back to the side-panel toolbar.
+- Detailed final-candidate accepted/rejected logs are now gated by
+  `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1`; keep this off for ordinary
+  manual testing because repeated clicks can produce large logs.
+- Remaining observed visual artifacts from a zoomed-out all-terrain test where
+  every tile was painted: Thick filled terrain well overall, with water mostly
+  filled but showing a few gaps. Thin filled terrain generally but left one-tile
+  boundary gaps around/between some terrains and a two-tile gap between snow and
+  lava; the user also observed a mostly repeated one-tile vertical line of trees
+  near the center boundary. Treat these as follow-up placement/candidate-order
+  issues, not as evidence that the workbook DEF classification is wrong.
+
+Runtime correction after visual Thick/Thin testing on 2026-06-20:
+
+- The user clarified that "thick" means visually solid border objects such as
+  trees and mountains; "thin" means visually passable/sparse/flat objects such
+  as mushrooms, lakes, craters, and small plants.
+- Manual screenshots showed the final-candidate hook was active but still used
+  some wrong object families:
+  - Thick still admitted a few thin objects and left a one-tile void between
+    terrain regions.
+  - Thick snow heavily favored dead trees and missed green snow trees/snow
+    mountains.
+  - Thick sand favored rocky mountains and missed sand dunes.
+  - Thin still admitted dirt/swamp mountains and trees, while it received some
+    sand/snow mountain families that should belong to Thick.
+- Runtime logs showed a concrete key mismatch. Example:
+
+```text
+Obstacle variants: observed final candidate ... defKey=990 objectId=114 subtype=0 thickness=unknown mode=thick-only
+```
+
+  Offline `objects.txt` first-seen index `990` is not the runtime candidate's
+  object family. This disproves the old offline first-seen DEF-key assumption.
+- Corrected implementation direction: keep the DEF-name classification from the
+  workbook, but register actual runtime DEF keys as the editor parses
+  `objects.txt`.
+
+Runtime correction after first manual Thick/Thin test:
+
+- The user reported that both Thick and Thin buttons behaved like the default
+  obstacle button.
+- The log showed Thick/Thin click handlers were entered, but no candidate
+  rejection logs appeared before the mode was cleared:
+
+```text
+Obstacle variants: running thick obstacle generation.
+Obstacle variants: finished thick obstacle generation.
+```
+
+- First hypothesis was deferred command execution, so a timer-based mode clear
+  was tested. The user reported no behavioral change, and the log still showed
+  no observed candidates.
+- Corrected interpretation: `0x004AF82F` is not the live candidate path for this
+  workflow. Thick/thin filtering was moved to the runtime-verified
+  final-candidate record path at `0x0049E592`.
+- The persistent side-panel subclass and focusable `BUTTON` controls were also
+  removed because manual testing showed keyboard shortcuts were broken while
+  that UI path was active.
+- A follow-up manual test reported the non-focus static controls were not
+  clickable; adding `SS_NOTIFY` fixed the likely Win32 hit-test/notification
+  issue while preserving the non-focus behavior.
+- Debug and Release Win32 builds passed after this correction. A startup-only
+  smoke test also passed, but the final-candidate filtering and keyboard
+  shortcuts still need a manual map-editor click test.
 
 Generator command after the workbook is classified:
 
@@ -682,25 +842,26 @@ Generator command after the workbook is classified:
 & 'C:\Users\Andy\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
   tools\generate_obstacle_classification.py `
   --workbook 'C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx' `
-  --rand-trn 'C:\Users\Andy\Games\3DO\Heroes3\Data\rand_trn.txt' `
+  --objects 'C:\Users\Andy\Games\3DO\Heroes3\Data\objects.txt' `
   --output plugin\obstacle_classification.cpp
 ```
 
 Current generator validation:
 
-- Against the present workbook, the generator fails as expected with
-  `workbook is missing required column(s): Thickness`.
-- Debug Win32 and Release Win32 builds pass with the scaffold in place.
+- The generator succeeds against the classified workbook and HotA 1.8.0
+  `objects.txt`, producing 844 classified DEF-name hashes.
+- Debug Win32 and Release Win32 builds passed after the runtime registration
+  hook and focus fix were added. Rebuild again after any code changes; close
+  `h3hota_maped.exe` first because it pins the Debug DLL.
 
 Still requiring runtime validation:
 
-- With a non-empty generated classification table, confirm that the Thick/Thin
-  buttons appear in the side panel after selecting the obstacle tool.
-- Confirm the button command path runs obstacle generation synchronously while
-  `ObstacleGenerationFilterMode` is set. If `32927` only posts later work, the
-  mode-clear point must move to the real completion path.
 - Confirm normal `Place Obstacles [Shift+O]` behavior is unchanged when variant
   mode is inactive.
+- Investigate the Thin terrain-boundary gaps, especially the two-tile snow/lava
+  gap, and the repeated center tree line. Decide whether this needs a code
+  change, a workbook classification adjustment, or acceptance as native
+  generator behavior under a filtered candidate set.
 - During drag preview, a wrapper previously named `sub_42A069` calls the real
   placement validator previously named `sub_42616A`.
 - `sub_42616A` appears to:
