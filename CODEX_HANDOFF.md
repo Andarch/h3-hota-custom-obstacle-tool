@@ -787,30 +787,25 @@ Obstacle variants: installed side-panel buttons ... thicknessTable=available
 - Detailed final-candidate accepted/rejected logs are now gated by
   `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1`; keep this off for ordinary
   manual testing because repeated clicks can produce large logs.
-- On 2026-06-20, trace-only instrumentation was added around the native
-  candidate score result at `h3hota_maped.exe:0x0049E642`. When
-  `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1` is set, the plugin logs a compact
-  per-`rand_trn.txt` row summary after each Thick/Thin command:
-  final candidates seen/allowed/rejected by the DEF filter, plus native score
-  results for candidates that passed the DEF filter. The stolen bytes are
-  `85 C0 89 45 94` (`test eax,eax; mov [ebp-6Ch],eax`), and the hook preserves
-  the original `jle` decision by restoring the flags immediately before
-  resuming at `0x0049E647`.
 - Runtime startup with trace enabled showed that HotA has already replaced
-  `0x0049E642` with a near jump into generated patch code. The trace hook now
-  supports this case by patching the live jump and chaining to HotA's generated
-  target after logging the score. Startup log example:
+  `0x0049E642` with a near jump into generated patch code. An attempted trace
+  hook that patched this live jump and chained to HotA's generated target caused
+  Thin generation to place no objects and produced summaries with
+  `scoreSeen=0` for every row. Treat the HotA jump-chain score hook as
+  disproven. The current code contains no score-path hook and uses
+  final-candidate tracing only. Expected startup log example:
 
 ```text
-Obstacle variants trace: native candidate score hook chained through HotA jump at 0049E642 ...
-Obstacle variants installed: ... trace=on scoreTrace=on
+Obstacle variants trace: score-path hooks disabled; using final-candidate trace only.
+Obstacle variants installed: ... trace=on
 ```
 
 - Computer Use could list the editor windows on 2026-06-20, but the traced
   editor window captured as a black surface and could not be activated
-  reliably. No runtime score summary has been captured yet; the next useful
-  runtime pass needs either reliable GUI control or one manual Thin generation
-  with `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1` enabled.
+  reliably. A manual Thin generation with the unsafe score hook enabled proved
+  the score hook was invasive, not that Thin mode has no valid candidates.
+  Further runtime tracing should use final-candidate summaries only until a
+  safe score observation point inside HotA's generated wrapper is identified.
 - Remaining observed visual artifacts from a zoomed-out all-terrain test where
   every tile was painted: Thick filled terrain well overall, with water mostly
   filled but showing a few gaps. Thin filled terrain generally but left one-tile
@@ -831,6 +826,19 @@ Obstacle variants installed: ... trace=on scoreTrace=on
   rows have much broader positive overlap. Letting "other thin objects" fill
   those native boundary gaps would require changing the score/overlap behavior
   for variant generation, not merely correcting the DEF classification table.
+- A row-borrowing experiment changed allowed Thin final candidates' scoring row
+  pointer before native scoring. Broad all-terrain borrowing caused regressions:
+  dirt generated nothing and new terrain-border gaps appeared. The current
+  narrowed experiment borrows only:
+  - snow terrain `3` from row `61` (`snow pine tree`);
+  - lava terrain `7` from row `119` (`lava mountain`);
+  - wasteland terrain `11` from row `194` (`AVLrws03.def` stone, used for the
+    `avlmtwl7.def` arch overlay).
+  Manual testing verified snow-side and lava-side gap cells can generate after
+  the narrowed row borrowing, but full all-terrain Thin validation is still
+  pending. After the working toolbar UI was verified, the user observed a
+  remaining Thin gap on the grass side of the grass/sand boundary; defer that
+  to the next placement/scoring investigation.
 - Some `rand_trn.txt` object families are mixed at the DEF level. Examples:
   `(119,0)` has 40 thick and 1 thin DEF, `(140,2)` has 42 thick and 12 thin,
   `(147,0)` has 7 thick and 21 thin, and several terrain decoration families
@@ -938,15 +946,35 @@ Obstacle variants: finished thick obstacle generation.
 - Corrected interpretation: `0x004AF82F` is not the live candidate path for this
   workflow. Thick/thin filtering was moved to the runtime-verified
   final-candidate record path at `0x0049E592`.
-- The persistent side-panel subclass and focusable `BUTTON` controls were also
+- The persistent side-panel subclass and focusable `BUTTON` controls were
   removed because manual testing showed keyboard shortcuts were broken while
-  that UI path was active.
-- A follow-up manual test reported the non-focus static controls were not
-  clickable; adding `SS_NOTIFY` fixed the likely Win32 hit-test/notification
-  issue while preserving the non-focus behavior.
-- Debug and Release Win32 builds passed after this correction. A startup-only
-  smoke test also passed, but the final-candidate filtering and keyboard
-  shortcuts still need a manual map-editor click test.
+  that UI path was active. Non-focus `STATIC` buttons were later clickable, but
+  another manual test showed keyboard shortcuts again failed while the custom
+  side-panel controls were active.
+- A diagnostic build with obstacle variant UI disabled restored keyboard
+  shortcuts, confirming the remaining shortcut regression is in the UI layer,
+  not the candidate/filter hooks.
+- The working UI adds Thick/Thin as real text buttons on the existing obstacle
+  toolbar, but does not subclass the editor parent or toolbar window. Earlier
+  parent/toolbar subclass attempts broke editor keyboard shortcuts, and
+  child-window or painted-panel attempts either broke shortcuts or introduced
+  painting/focus issues.
+- The verified implementation installs a UI-thread `WH_GETMESSAGE` hook,
+  watches queued mouse clicks for only the obstacle toolbar, uses
+  `TB_HITTEST`/`TB_GETBUTTON` to detect the Thick/Thin command slots, swallows
+  those clicks, and directly runs the variant generation command. The editor's
+  normal shortcut/accelerator routing remains intact. Startup smoke on
+  2026-06-21 logged:
+
+```text
+Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTable=available
+```
+
+  Manual runtime validation on 2026-06-21 confirmed:
+  - the default Place Obstacles label is normal;
+  - Thick/Thin buttons are visible and clickable;
+  - Thick/Thin generation works;
+  - keyboard shortcuts work before and after clicking the new buttons.
 
 Generator command after the workbook is classified:
 
@@ -993,8 +1021,8 @@ Still requiring runtime validation:
 - Capture one trace-enabled Thin generation over the boundary-gap test area and
   inspect the per-row summary. Rows with many `finalRejected` entries indicate
   the generator is selecting native tree/mountain rows whose DEFs are mostly
-  filtered out; rows with many `scoreNonPositive` or `scoreHardReject` entries
-  indicate thin DEFs pass our filter but are rejected by native scoring.
+  filtered out. Score-path tracing is intentionally unavailable until a safe
+  HotA-generated-wrapper observation point is identified.
 - Decide whether Thin boundary gaps should be fixed by:
   - a narrow score/matrix adjustment while Thin mode is active, after trace
     evidence proves the exact rejected rows; or

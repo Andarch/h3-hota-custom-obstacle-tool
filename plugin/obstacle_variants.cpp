@@ -20,25 +20,15 @@ namespace
     {
         HWND parent = nullptr;
         HWND sourceToolbar = nullptr;
-        HWND thickButton = nullptr;
-        HWND thinButton = nullptr;
-        WNDPROC oldWndProc = nullptr;
-    };
-
-    struct VariantButton
-    {
-        HWND hwnd = nullptr;
-        HWND parent = nullptr;
-        HWND sourceToolbar = nullptr;
-        WNDPROC oldWndProc = nullptr;
-        ObstacleGenerationFilterMode mode = ObstacleGenerationFilterMode::None;
+        DWORD threadId = 0;
     };
 
     VariantPanel s_panels[8] = {};
-    VariantButton s_buttons[16] = {};
     CRITICAL_SECTION s_panelLock = {};
     bool s_panelLockInitialized = false;
-    UINT s_installButtonsMessage = 0;
+    HMODULE s_pluginModule = nullptr;
+    HHOOK s_getMessageHook = nullptr;
+    DWORD s_getMessageHookThreadId = 0;
 
     bool EnvValueEnabled(const char* value)
     {
@@ -83,11 +73,11 @@ namespace
         return false;
     }
 
-    VariantPanel* FindPanelLocked(HWND parent)
+    VariantPanel* FindPanelLocked(HWND toolbar)
     {
         for (VariantPanel& panel : s_panels)
         {
-            if (panel.parent == parent)
+            if (panel.sourceToolbar == toolbar)
                 return &panel;
         }
         return nullptr;
@@ -101,53 +91,6 @@ namespace
                 return &panel;
         }
         return nullptr;
-    }
-
-    VariantButton* FindButtonLocked(HWND hwnd)
-    {
-        for (VariantButton& button : s_buttons)
-        {
-            if (button.hwnd == hwnd)
-                return &button;
-        }
-        return nullptr;
-    }
-
-    VariantButton* FindFreeButtonLocked()
-    {
-        for (VariantButton& button : s_buttons)
-        {
-            if (!button.hwnd)
-                return &button;
-        }
-        return nullptr;
-    }
-
-    void AddTooltip(HWND parent, HWND control, const char* text)
-    {
-        HWND tooltip = CreateWindowExA(
-            WS_EX_TOPMOST,
-            TOOLTIPS_CLASSA,
-            nullptr,
-            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            parent,
-            nullptr,
-            nullptr,
-            nullptr);
-        if (!tooltip)
-            return;
-
-        TOOLINFOA info = {};
-        info.cbSize = sizeof(info);
-        info.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-        info.hwnd = parent;
-        info.uId = reinterpret_cast<UINT_PTR>(control);
-        info.lpszText = const_cast<char*>(text);
-        SendMessageA(tooltip, TTM_ADDTOOLA, 0, reinterpret_cast<LPARAM>(&info));
     }
 
     void RunObstacleVariantCommand(HWND parent, HWND sourceToolbar, ObstacleGenerationFilterMode mode)
@@ -179,259 +122,184 @@ namespace
         LogFormat("Obstacle variants: finished %s obstacle generation.", modeName);
     }
 
-    bool CreatePanelButtons(VariantPanel& panel);
-
-    LRESULT CALLBACK VariantButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+    bool HitTestVariantToolbarButton(
+        HWND toolbar,
+        LPARAM lParam,
+        ObstacleGenerationFilterMode& mode)
     {
-        VariantButton context;
-        bool haveContext = false;
-
-        EnterCriticalSection(&s_panelLock);
-        VariantButton* button = FindButtonLocked(hwnd);
-        if (button)
+        POINT point =
         {
-            context = *button;
-            haveContext = true;
+            static_cast<SHORT>(LOWORD(lParam)),
+            static_cast<SHORT>(HIWORD(lParam)),
+        };
+        const LRESULT hit = SendMessageA(toolbar, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&point));
+        if (hit < 0)
+            return false;
+
+        TBBUTTON button = {};
+        if (!SendMessageA(toolbar, TB_GETBUTTON, static_cast<WPARAM>(hit), reinterpret_cast<LPARAM>(&button)))
+            return false;
+
+        if (button.idCommand == static_cast<int>(kPlaceThickObstaclesCommand))
+        {
+            mode = ObstacleGenerationFilterMode::ThickOnly;
+            return true;
         }
-        LeaveCriticalSection(&s_panelLock);
-
-        if (!haveContext || !context.oldWndProc)
-            return DefWindowProcA(hwnd, message, wParam, lParam);
-
-        if (message == WM_LBUTTONUP)
+        if (button.idCommand == static_cast<int>(kPlaceThinObstaclesCommand))
         {
-            POINT point =
+            mode = ObstacleGenerationFilterMode::ThinOnly;
+            return true;
+        }
+
+        return false;
+    }
+
+    LRESULT CALLBACK VariantGetMessageHook(int code, WPARAM wParam, LPARAM lParam)
+    {
+        if (code >= 0 && wParam == PM_REMOVE)
+        {
+            MSG* message = reinterpret_cast<MSG*>(lParam);
+            if (message &&
+                (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
             {
-                static_cast<SHORT>(LOWORD(lParam)),
-                static_cast<SHORT>(HIWORD(lParam)),
-            };
-            RECT client = {};
-            GetClientRect(hwnd, &client);
-            if (PtInRect(&client, point))
-            {
-                RunObstacleVariantCommand(context.parent, context.sourceToolbar, context.mode);
-                return 0;
+                VariantPanel context;
+                bool haveContext = false;
+
+                EnterCriticalSection(&s_panelLock);
+                VariantPanel* panel = FindPanelLocked(message->hwnd);
+                if (panel)
+                {
+                    context = *panel;
+                    haveContext = true;
+                }
+                LeaveCriticalSection(&s_panelLock);
+
+                if (haveContext && IsWindow(context.sourceToolbar))
+                {
+                    ObstacleGenerationFilterMode mode = ObstacleGenerationFilterMode::None;
+                    if (HitTestVariantToolbarButton(context.sourceToolbar, message->lParam, mode))
+                    {
+                        const UINT originalMessage = message->message;
+                        message->message = WM_NULL;
+                        message->wParam = 0;
+                        message->lParam = 0;
+                        if (originalMessage == WM_LBUTTONUP)
+                            RunObstacleVariantCommand(context.parent, context.sourceToolbar, mode);
+                    }
+                }
             }
         }
 
-        if (message == WM_SETCURSOR)
-        {
-            SetCursor(LoadCursorA(nullptr, IDC_HAND));
-            return TRUE;
-        }
-
-        if (message == WM_NCDESTROY)
-        {
-            LRESULT result = CallWindowProcA(context.oldWndProc, hwnd, message, wParam, lParam);
-            EnterCriticalSection(&s_panelLock);
-            VariantButton* deadButton = FindButtonLocked(hwnd);
-            if (deadButton)
-                *deadButton = VariantButton();
-            LeaveCriticalSection(&s_panelLock);
-            return result;
-        }
-
-        return CallWindowProcA(context.oldWndProc, hwnd, message, wParam, lParam);
+        return CallNextHookEx(s_getMessageHook, code, wParam, lParam);
     }
 
-    LRESULT CALLBACK VariantPanelWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+    bool ResizeToolbarForVariantButtons(HWND toolbar)
     {
-        WNDPROC oldWndProc = nullptr;
-        VariantPanel* panel = nullptr;
-
-        EnterCriticalSection(&s_panelLock);
-        panel = FindPanelLocked(hwnd);
-        if (panel)
-            oldWndProc = panel->oldWndProc;
-        LeaveCriticalSection(&s_panelLock);
-
-        if (!oldWndProc)
-            return DefWindowProcA(hwnd, message, wParam, lParam);
-
-        if (message == s_installButtonsMessage && panel)
-        {
-            CreatePanelButtons(*panel);
-            SetWindowLongPtrA(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(oldWndProc));
-            EnterCriticalSection(&s_panelLock);
-            VariantPanel* restoredPanel = FindPanelLocked(hwnd);
-            if (restoredPanel)
-                restoredPanel->oldWndProc = nullptr;
-            LeaveCriticalSection(&s_panelLock);
-            return 0;
-        }
-
-        if (message == WM_NCDESTROY)
-        {
-            LRESULT result = CallWindowProcA(oldWndProc, hwnd, message, wParam, lParam);
-            EnterCriticalSection(&s_panelLock);
-            VariantPanel* deadPanel = FindPanelLocked(hwnd);
-            if (deadPanel)
-                *deadPanel = VariantPanel();
-            LeaveCriticalSection(&s_panelLock);
-            return result;
-        }
-
-        return CallWindowProcA(oldWndProc, hwnd, message, wParam, lParam);
-    }
-
-    bool InstallVariantButtonHandler(
-        HWND hwnd,
-        HWND parent,
-        HWND sourceToolbar,
-        ObstacleGenerationFilterMode mode)
-    {
-        EnterCriticalSection(&s_panelLock);
-        VariantButton* existing = FindButtonLocked(hwnd);
-        if (existing)
-        {
-            LeaveCriticalSection(&s_panelLock);
-            return true;
-        }
-        VariantButton* button = FindFreeButtonLocked();
-        if (!button)
-        {
-            LeaveCriticalSection(&s_panelLock);
-            LogMessage("Obstacle variants: button capacity exhausted.");
-            return false;
-        }
-        button->hwnd = hwnd;
-        button->parent = parent;
-        button->sourceToolbar = sourceToolbar;
-        button->mode = mode;
-        LeaveCriticalSection(&s_panelLock);
-
-        WNDPROC oldWndProc = reinterpret_cast<WNDPROC>(
-            SetWindowLongPtrA(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(VariantButtonWndProc)));
-        if (!oldWndProc)
-        {
-            EnterCriticalSection(&s_panelLock);
-            VariantButton* failedButton = FindButtonLocked(hwnd);
-            if (failedButton)
-                *failedButton = VariantButton();
-            LeaveCriticalSection(&s_panelLock);
-            LogMessage("Obstacle variants: failed to subclass variant button.");
-            return false;
-        }
-
-        EnterCriticalSection(&s_panelLock);
-        VariantButton* installedButton = FindButtonLocked(hwnd);
-        if (installedButton)
-            installedButton->oldWndProc = oldWndProc;
-        LeaveCriticalSection(&s_panelLock);
-        return true;
-    }
-
-    bool CreatePanelButtons(VariantPanel& panel)
-    {
-        if (panel.thickButton && IsWindow(panel.thickButton) &&
-            panel.thinButton && IsWindow(panel.thinButton))
-        {
-            return true;
-        }
-
-        HWND parent = panel.parent;
-        HWND toolbar = panel.sourceToolbar;
-
-        EnterCriticalSection(&s_panelLock);
-        const bool knownPanel = FindPanelLocked(parent) == &panel;
-        LeaveCriticalSection(&s_panelLock);
-        if (!knownPanel || !IsWindow(parent) || !IsWindow(toolbar))
+        HWND parent = GetParent(toolbar);
+        if (!parent)
             return false;
 
         RECT toolbarRect = {};
         RECT clientRect = {};
         if (!GetWindowRect(toolbar, &toolbarRect) || !GetClientRect(parent, &clientRect))
-        {
             return false;
-        }
+
         MapWindowPoints(HWND_DESKTOP, parent, reinterpret_cast<POINT*>(&toolbarRect), 2);
 
-        const int buttonHeight = max(20, toolbarRect.bottom - toolbarRect.top);
-        int buttonWidth = 44;
-        const int gap = 4;
-        int x = toolbarRect.right + 8;
-        const int y = toolbarRect.top;
-        if (x + buttonWidth * 2 + gap > clientRect.right - 4)
+        SIZE maxSize = {};
+        SendMessageA(toolbar, TB_AUTOSIZE, 0, 0);
+        if (SendMessageA(toolbar, TB_GETMAXSIZE, 0, reinterpret_cast<LPARAM>(&maxSize)) &&
+            maxSize.cx > 0 && maxSize.cy > 0)
         {
-            buttonWidth = buttonHeight + 8;
-            x = toolbarRect.right + 4;
-        }
-
-        const DWORD style =
-            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS |
-            SS_CENTER | SS_CENTERIMAGE | SS_NOTIFY | WS_BORDER;
-        HWND thickButton = CreateWindowExA(
-            0,
-            "STATIC",
-            buttonWidth >= 40 ? "Thick" : "T",
-            style,
-            x,
-            y,
-            buttonWidth,
-            buttonHeight,
-            parent,
-            reinterpret_cast<HMENU>(kPlaceThickObstaclesCommand),
-            nullptr,
-            nullptr);
-        HWND thinButton = CreateWindowExA(
-            0,
-            "STATIC",
-            buttonWidth >= 40 ? "Thin" : "t",
-            style,
-            x + buttonWidth + gap,
-            y,
-            buttonWidth,
-            buttonHeight,
-            parent,
-            reinterpret_cast<HMENU>(kPlaceThinObstaclesCommand),
-            nullptr,
-            nullptr);
-
-        if (!thickButton || !thinButton)
-        {
-            LogMessage("Obstacle variants: failed to create side-panel buttons.");
-            if (thickButton)
-                DestroyWindow(thickButton);
-            if (thinButton)
-                DestroyWindow(thinButton);
-            return false;
-        }
-
-        const bool tableAvailable = ObstacleThicknessTableAvailable();
-        EnableWindow(thickButton, tableAvailable);
-        EnableWindow(thinButton, tableAvailable);
-        AddTooltip(parent, thickButton, "Place Thick Obstacles");
-        AddTooltip(parent, thinButton, "Place Thin Obstacles");
-        if (!InstallVariantButtonHandler(
-                thickButton,
-                parent,
+            const int width = min(maxSize.cx + 8, clientRect.right - toolbarRect.left - 4);
+            const int height = max(toolbarRect.bottom - toolbarRect.top, maxSize.cy + 4);
+            SetWindowPos(
                 toolbar,
-                ObstacleGenerationFilterMode::ThickOnly) ||
-            !InstallVariantButtonHandler(
-                thinButton,
-                parent,
-                toolbar,
-                ObstacleGenerationFilterMode::ThinOnly))
-        {
-            DestroyWindow(thickButton);
-            DestroyWindow(thinButton);
-            return false;
+                nullptr,
+                toolbarRect.left,
+                toolbarRect.top,
+                width,
+                height,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            return true;
         }
 
-        EnterCriticalSection(&s_panelLock);
-        VariantPanel* installedPanel = FindPanelLocked(parent);
-        if (installedPanel == &panel)
-        {
-            installedPanel->thickButton = thickButton;
-            installedPanel->thinButton = thinButton;
-        }
-        LeaveCriticalSection(&s_panelLock);
-
-        LogFormat(
-            "Obstacle variants: installed side-panel buttons parent=%p toolbar=%p thicknessTable=%s",
-            parent,
+        const int width = min(toolbarRect.right - toolbarRect.left + 96, clientRect.right - toolbarRect.left - 4);
+        SetWindowPos(
             toolbar,
-            tableAvailable ? "available" : "missing");
+            nullptr,
+            toolbarRect.left,
+            toolbarRect.top,
+            width,
+            toolbarRect.bottom - toolbarRect.top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        return true;
+    }
+
+    bool AddVariantToolbarButtons(HWND toolbar)
+    {
+        if (ToolbarHasCommand(toolbar, kPlaceThickObstaclesCommand) &&
+            ToolbarHasCommand(toolbar, kPlaceThinObstaclesCommand))
+        {
+            SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThickObstaclesCommand, MAKELPARAM(TRUE, 0));
+            SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThinObstaclesCommand, MAKELPARAM(TRUE, 0));
+            ResizeToolbarForVariantButtons(toolbar);
+            return true;
+        }
+
+        SendMessageA(toolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
+
+        TBBUTTON buttons[2] = {};
+        buttons[0].iBitmap = I_IMAGENONE;
+        buttons[0].idCommand = kPlaceThickObstaclesCommand;
+        buttons[0].fsState = TBSTATE_ENABLED;
+        buttons[0].fsStyle = BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT;
+        buttons[0].iString = reinterpret_cast<INT_PTR>("Thick");
+
+        buttons[1].iBitmap = I_IMAGENONE;
+        buttons[1].idCommand = kPlaceThinObstaclesCommand;
+        buttons[1].fsState = TBSTATE_ENABLED;
+        buttons[1].fsStyle = BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT;
+        buttons[1].iString = reinterpret_cast<INT_PTR>("Thin");
+
+        if (!SendMessageA(toolbar, TB_ADDBUTTONSA, 2, reinterpret_cast<LPARAM>(buttons)))
+        {
+            LogMessage("Obstacle variants: failed to add toolbar buttons.");
+            return false;
+        }
+
+        SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThickObstaclesCommand, MAKELPARAM(TRUE, 0));
+        SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThinObstaclesCommand, MAKELPARAM(TRUE, 0));
+        ResizeToolbarForVariantButtons(toolbar);
+        InvalidateRect(toolbar, nullptr, TRUE);
+        return true;
+    }
+
+    bool EnsureGetMessageHook(DWORD threadId)
+    {
+        if (s_getMessageHook && s_getMessageHookThreadId == threadId)
+            return true;
+
+        if (s_getMessageHook)
+        {
+            LogMessage("Obstacle variants: unexpected second UI thread for toolbar hook.");
+            return false;
+        }
+
+        s_getMessageHook = SetWindowsHookExA(
+            WH_GETMESSAGE,
+            VariantGetMessageHook,
+            s_pluginModule,
+            threadId);
+        if (!s_getMessageHook)
+        {
+            LogFormat(
+                "Obstacle variants: failed to install toolbar message hook, gle=%lu.",
+                GetLastError());
+            return false;
+        }
+
+        s_getMessageHookThreadId = threadId;
         return true;
     }
 
@@ -441,10 +309,16 @@ namespace
         if (!parent)
             return false;
 
+        DWORD processId = 0;
+        const DWORD threadId = GetWindowThreadProcessId(toolbar, &processId);
+        if (!threadId || processId != GetCurrentProcessId())
+            return false;
+
         EnterCriticalSection(&s_panelLock);
-        if (FindPanelLocked(parent))
+        if (FindPanelLocked(toolbar))
         {
             LeaveCriticalSection(&s_panelLock);
+            AddVariantToolbarButtons(toolbar);
             return true;
         }
         VariantPanel* panel = FindFreePanelLocked();
@@ -456,31 +330,34 @@ namespace
         }
         panel->parent = parent;
         panel->sourceToolbar = toolbar;
+        panel->threadId = threadId;
         LeaveCriticalSection(&s_panelLock);
 
-        WNDPROC oldWndProc = reinterpret_cast<WNDPROC>(
-            SetWindowLongPtrA(parent, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(VariantPanelWndProc)));
-        if (!oldWndProc)
+        if (!AddVariantToolbarButtons(toolbar))
         {
-            LogMessage("Obstacle variants: failed to subclass obstacle side panel.");
             EnterCriticalSection(&s_panelLock);
-            VariantPanel* failedPanel = FindPanelLocked(parent);
+            VariantPanel* failedPanel = FindPanelLocked(toolbar);
             if (failedPanel)
                 *failedPanel = VariantPanel();
             LeaveCriticalSection(&s_panelLock);
             return false;
         }
 
-        EnterCriticalSection(&s_panelLock);
-        VariantPanel* installedPanel = FindPanelLocked(parent);
-        if (installedPanel)
+        if (!EnsureGetMessageHook(threadId))
         {
-            installedPanel->oldWndProc = oldWndProc;
+            EnterCriticalSection(&s_panelLock);
+            VariantPanel* failedPanel = FindPanelLocked(toolbar);
+            if (failedPanel)
+                *failedPanel = VariantPanel();
+            LeaveCriticalSection(&s_panelLock);
+            return false;
         }
-        LeaveCriticalSection(&s_panelLock);
 
-        if (!PostMessageA(parent, s_installButtonsMessage, 0, 0))
-            LogMessage("Obstacle variants: failed to post side-panel button creation message.");
+        LogFormat(
+            "Obstacle variants: installed toolbar buttons parent=%p toolbar=%p thicknessTable=%s",
+            parent,
+            toolbar,
+            ObstacleThicknessTableAvailable() ? "available" : "missing");
         return true;
     }
 
@@ -518,11 +395,14 @@ bool ObstacleVariantsEnabled()
 
 bool StartObstacleVariantUi(std::string& error)
 {
-    s_installButtonsMessage =
-        RegisterWindowMessageA("HotaMapEdPlugin.ObstacleVariants.InstallButtons");
-    if (!s_installButtonsMessage)
+    if (!s_pluginModule &&
+        !GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCSTR>(&StartObstacleVariantUi),
+            &s_pluginModule))
     {
-        error = "could not register obstacle variant UI message";
+        error = "could not resolve plugin module handle for obstacle variant UI hook";
         return false;
     }
 

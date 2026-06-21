@@ -32,9 +32,9 @@ namespace
     constexpr DWORD kObjectRecordAssignReturnStolenLength = 5;
     constexpr DWORD kFinalCandidateRecordSite = 0x0049E592;
     constexpr DWORD kFinalCandidateRecordStolenLength = 5;
-    constexpr DWORD kNativeCandidateScoreSite = 0x0049E642;
-    constexpr DWORD kNativeCandidateScoreStolenLength = 5;
     constexpr DWORD kFinalCandidateRejectTarget = 0x0049E69E;
+    constexpr DWORD kTerrainCount = 12;
+    constexpr BYTE kNoReferenceRow = 0xFF;
 
     const BYTE kPredicateExpected[] =
     {
@@ -74,12 +74,6 @@ namespace
         0x8D, 0x4D, 0xCC,       // lea ecx, [ebp-34h]
     };
 
-    const BYTE kNativeCandidateScoreExpected[] =
-    {
-        0x85, 0xC0,             // test eax, eax
-        0x89, 0x45, 0x94,       // mov [ebp-6Ch], eax
-    };
-
     const BYTE kAllowedRandTrnRows[] =
     {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -93,6 +87,36 @@ namespace
     };
     constexpr DWORD kRandTrnRowCount =
         sizeof(kAllowedRandTrnRows) / sizeof(kAllowedRandTrnRows[0]);
+
+    const BYTE kRandTrnTerrainByRow[kRandTrnRowCount] =
+    {
+          0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,
+          1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   2,   2,   2,   2,   2,   2,   2,   2,
+          2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   3,   3,   3,   3,   3,   3,
+          3,   3,   3,   3,   3,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,
+          4,   4,   4,   4,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
+          6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   7,   7,   7,   7,   7,
+          7,   7,   7,   7,   7,   7,   8,   8,   4,   4,   1,   1,   1,   1,   1,   1,   1,   4,   4,   0,
+          0,   0,   2,   1,   4,   7,   7,   1,   3,   3,   0,   0,   2,   2,   3,   3,   4,   4,   5,   5,
+          6,   6,   3,   1,   1,   1,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,
+         10,  10,  10,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,   7,
+    };
+
+    const BYTE kThinScoringReferenceRowByTerrain[kTerrainCount] =
+    {
+        kNoReferenceRow,    // dirt
+        kNoReferenceRow,    // sand
+        kNoReferenceRow,    // grass
+        61,                 // snow pine tree
+        kNoReferenceRow,    // swamp
+        kNoReferenceRow,    // rough
+        kNoReferenceRow,    // cave
+        119,                // lava mountain
+        kNoReferenceRow,    // water
+        kNoReferenceRow,    // reserved terrain 9
+        kNoReferenceRow,    // highlands
+        194,                // wasteland stone, used by the arch overlay
+    };
 
     const char* const kExtraThickObjectRows[] =
     {
@@ -116,7 +140,6 @@ namespace
     BYTE s_hotaParserWrapperFallbackOriginal[5] = {};
     BYTE s_objectRecordAssignReturnOriginal[5] = {};
     BYTE s_finalCandidateRecordOriginal[5] = {};
-    BYTE s_nativeCandidateScoreOriginal[5] = {};
     BYTE s_extraBlockedRandTrnRows[kRandTrnRowCount] = {};
     DWORD s_predicateResume = 0;
     DWORD s_objectsTxtLoaderResume = 0;
@@ -124,14 +147,13 @@ namespace
     DWORD s_hotaParserWrapperFallbackResume = 0;
     DWORD s_objectRecordAssignReturnResume = 0;
     DWORD s_finalCandidateRecordResume = 0;
-    DWORD s_nativeCandidateScoreResume = 0;
     DWORD s_finalCandidateReject = kFinalCandidateRejectTarget;
     DWORD s_snowMountainRowRecord = 0;
     DWORD s_wastelandStoneRowRecord = 0;
+    DWORD s_thinScoringReferenceRows[kTerrainCount] = {};
     DWORD s_extraBlockedRowCount = 0;
     bool s_workbookFilterEnabled = false;
     bool s_variantTraceEnabled = false;
-    bool s_nativeCandidateScoreHookInstalled = false;
     bool s_objectsOverlayReady = false;
     bool s_objectsOverlayAttempted = false;
     char s_objectsOverlayPath[MAX_PATH] = {};
@@ -141,6 +163,7 @@ namespace
     volatile LONG s_rejectedCandidates = 0;
     volatile LONG s_glacierFallbackAssignments = 0;
     volatile LONG s_archFallbackAssignments = 0;
+    volatile LONG s_thinScoringRowOverrides = 0;
     volatile LONG s_generationFilterMode = 0;
 
     struct VariantTraceRowStats
@@ -148,10 +171,6 @@ namespace
         LONG finalSeen;
         LONG finalAllowed;
         LONG finalRejected;
-        LONG scoreSeen;
-        LONG scorePositive;
-        LONG scoreNonPositive;
-        LONG scoreHardReject;
     };
 
     VariantTraceRowStats s_variantTraceRows[kRandTrnRowCount] = {};
@@ -712,6 +731,40 @@ namespace
                 LogMessage("Obstacle variants: further candidate rejection logs suppressed.");
             }
         }
+        else if (mode == ObstacleGenerationFilterMode::ThinOnly &&
+            thickness == ObstacleThickness::Thin &&
+            haveRowId &&
+            rowId < kRandTrnRowCount)
+        {
+            const BYTE terrain = kRandTrnTerrainByRow[rowId];
+            if (terrain < kTerrainCount)
+            {
+                const DWORD referenceRow = s_thinScoringReferenceRows[terrain];
+                DWORD currentRow = 0;
+                if (referenceRow != 0 &&
+                    SafeReadDword(record + 0x10, currentRow) &&
+                    currentRow != referenceRow &&
+                    SafeWriteDword(record + 0x10, referenceRow))
+                {
+                    const LONG hit = InterlockedIncrement(&s_thinScoringRowOverrides);
+                    if (s_variantTraceEnabled && hit <= 32)
+                    {
+                        DWORD referenceRowId = 0;
+                        SafeReadDword(referenceRow, referenceRowId);
+                        LogFormat(
+                            "Obstacle variants: thin scoring row override record=%p terrain=%lu rowId=%lu referenceRowId=%lu",
+                            reinterpret_cast<void*>(record),
+                            static_cast<DWORD>(terrain),
+                            rowId,
+                            referenceRowId);
+                    }
+                    else if (s_variantTraceEnabled && hit == 33)
+                    {
+                        LogMessage("Obstacle variants: further thin scoring row override logs suppressed.");
+                    }
+                }
+            }
+        }
 
         return allowed;
     }
@@ -812,6 +865,28 @@ namespace
                 "Obstacle variants: captured wasteland stone rand_trn row for arch overlay rowRecord=%p rowId=%lu",
                 reinterpret_cast<void*>(rowRecord),
                 rowId);
+        }
+
+        if (mode == ObstacleGenerationFilterMode::ThinOnly)
+        {
+            DWORD rowId = 0;
+            if (SafeReadDword(rowRecord, rowId) && rowId < kRandTrnRowCount)
+            {
+                for (DWORD terrain = 0; terrain < kTerrainCount; ++terrain)
+                {
+                    if (kThinScoringReferenceRowByTerrain[terrain] == rowId &&
+                        s_thinScoringReferenceRows[terrain] == 0)
+                    {
+                        s_thinScoringReferenceRows[terrain] = rowRecord;
+                        LogFormat(
+                            "Obstacle variants: captured thin scoring reference terrain=%lu rowRecord=%p rowId=%lu",
+                            terrain,
+                            reinterpret_cast<void*>(rowRecord),
+                            rowId);
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -985,54 +1060,24 @@ namespace
             mode == ObstacleGenerationFilterMode::ThinOnly ? "thin-only" :
             "none";
 
-        LogFormat("Obstacle variants trace summary begin mode=%s scoreHook=%s",
-            modeName,
-            s_nativeCandidateScoreHookInstalled ? "on" : "off");
+        LogFormat("Obstacle variants trace summary begin mode=%s", modeName);
 
         for (DWORD rowId = 0; rowId < kRandTrnRowCount; ++rowId)
         {
             const VariantTraceRowStats& stats = s_variantTraceRows[rowId];
-            if (stats.finalSeen == 0 && stats.scoreSeen == 0)
+            if (stats.finalSeen == 0)
                 continue;
 
             LogFormat(
-                "Obstacle variants trace rowId=%lu obstacleId=%lu finalSeen=%ld finalAllowed=%ld finalRejected=%ld scoreSeen=%ld scorePositive=%ld scoreNonPositive=%ld scoreHardReject=%ld",
+                "Obstacle variants trace rowId=%lu obstacleId=%lu finalSeen=%ld finalAllowed=%ld finalRejected=%ld",
                 rowId,
                 rowId + 1,
                 stats.finalSeen,
                 stats.finalAllowed,
-                stats.finalRejected,
-                stats.scoreSeen,
-                stats.scorePositive,
-                stats.scoreNonPositive,
-                stats.scoreHardReject);
+                stats.finalRejected);
         }
 
         LogMessage("Obstacle variants trace summary end");
-    }
-
-    void __stdcall TraceNativeCandidateScore(DWORD record, LONG score)
-    {
-        if (!s_variantTraceEnabled)
-            return;
-
-        const auto mode = static_cast<ObstacleGenerationFilterMode>(
-            InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
-        if (mode == ObstacleGenerationFilterMode::None)
-            return;
-
-        DWORD rowId = 0;
-        if (!TryReadCandidateRecordRowId(record, rowId))
-            return;
-
-        InterlockedIncrement(&s_variantTraceRows[rowId].scoreSeen);
-        if (score > 0)
-            InterlockedIncrement(&s_variantTraceRows[rowId].scorePositive);
-        else
-            InterlockedIncrement(&s_variantTraceRows[rowId].scoreNonPositive);
-
-        if (score <= -4000)
-            InterlockedIncrement(&s_variantTraceRows[rowId].scoreHardReject);
     }
 
     __declspec(naked) void FinalCandidateRecordHook()
@@ -1075,37 +1120,6 @@ namespace
         }
     }
 
-    __declspec(naked) void NativeCandidateScoreHook()
-    {
-        __asm
-        {
-            pushad
-            push    eax
-            push    dword ptr [ebp-28h]
-            call    TraceNativeCandidateScore
-            popad
-
-            test    eax, eax
-            mov     [ebp-6Ch], eax
-            jmp     dword ptr [s_nativeCandidateScoreResume]
-        }
-    }
-
-    __declspec(naked) void NativeCandidateScorePatchedJumpHook()
-    {
-        __asm
-        {
-            pushfd
-            pushad
-            push    eax
-            push    dword ptr [ebp-28h]
-            call    TraceNativeCandidateScore
-            popad
-            popfd
-
-            jmp     dword ptr [s_nativeCandidateScoreResume]
-        }
-    }
 }
 
 bool ObstacleFilterEnabled()
@@ -1316,100 +1330,16 @@ bool InstallObstacleFilterHooks(std::string& error)
         }
 
         if (s_variantTraceEnabled)
-        {
-            void* const nativeCandidateScore =
-                reinterpret_cast<void*>(kNativeCandidateScoreSite);
-
-            const HookSpec scoreSpec =
-            {
-                nativeCandidateScore,
-                kNativeCandidateScoreExpected,
-                sizeof(kNativeCandidateScoreExpected),
-            };
-
-            s_nativeCandidateScoreResume =
-                kNativeCandidateScoreSite + kNativeCandidateScoreStolenLength;
-            result =
-                HookInstall(
-                    scoreSpec,
-                    NativeCandidateScoreHook,
-                    s_nativeCandidateScoreOriginal);
-            if (result == HookResult::Success)
-            {
-                s_nativeCandidateScoreHookInstalled = true;
-            }
-            else
-            {
-                const std::string actualBytes = FormatBytes(
-                    nativeCandidateScore,
-                    sizeof(kNativeCandidateScoreExpected));
-                DWORD generatedTarget = 0;
-                std::string generatedBytes;
-                BYTE firstByte = 0;
-                DWORD relativeJump = 0;
-                if (SafeReadByte(reinterpret_cast<DWORD>(nativeCandidateScore), firstByte) &&
-                    firstByte == 0xE9 &&
-                    SafeReadDword(
-                        reinterpret_cast<DWORD>(nativeCandidateScore) + 1,
-                        relativeJump))
-                {
-                    generatedTarget =
-                        reinterpret_cast<DWORD>(nativeCandidateScore) + 5 + relativeJump;
-                    generatedBytes =
-                        FormatBytes(reinterpret_cast<void*>(generatedTarget), 16);
-
-                    BYTE dynamicExpected[5] = {};
-                    for (DWORD index = 0; index < sizeof(dynamicExpected); ++index)
-                    {
-                        SafeReadByte(
-                            reinterpret_cast<DWORD>(nativeCandidateScore) + index,
-                            dynamicExpected[index]);
-                    }
-
-                    const HookSpec patchedJumpSpec =
-                    {
-                        nativeCandidateScore,
-                        dynamicExpected,
-                        sizeof(dynamicExpected),
-                    };
-                    s_nativeCandidateScoreResume = generatedTarget;
-                    result =
-                        HookInstall(
-                            patchedJumpSpec,
-                            NativeCandidateScorePatchedJumpHook,
-                            s_nativeCandidateScoreOriginal);
-                    if (result == HookResult::Success)
-                    {
-                        s_nativeCandidateScoreHookInstalled = true;
-                        LogFormat(
-                            "Obstacle variants trace: native candidate score hook chained through HotA jump at %p generatedTarget=%p generatedBytes=%s",
-                            nativeCandidateScore,
-                            reinterpret_cast<void*>(generatedTarget),
-                            generatedBytes.c_str());
-                    }
-                }
-                if (!s_nativeCandidateScoreHookInstalled)
-                {
-                    LogFormat(
-                        "Obstacle variants trace: native candidate score hook unavailable at %p: %s actual=%s generatedTarget=%p generatedBytes=%s",
-                        nativeCandidateScore,
-                        HookResultName(result),
-                        actualBytes.c_str(),
-                        reinterpret_cast<void*>(generatedTarget),
-                        generatedBytes.c_str());
-                }
-            }
-        }
+            LogMessage("Obstacle variants trace: score-path hooks disabled; using final-candidate trace only.");
 
         LogFormat(
-            "Obstacle variants installed: objectsOverlayRedirect=%p hotaRowCapture=%p hotaGlacierFallback=%p objectDefRegistration=%p finalCandidateRecord=%p thicknessTable=available trace=%s scoreTrace=%s",
+            "Obstacle variants installed: objectsOverlayRedirect=%p hotaRowCapture=%p hotaGlacierFallback=%p objectDefRegistration=%p finalCandidateRecord=%p thicknessTable=available trace=%s",
             objectsTxtLoader,
             hotaParserStore,
             hotaParserWrapperFallback,
             objectRecordAssignReturn,
             predicate,
-            s_variantTraceEnabled ? "on" : "off",
-            s_nativeCandidateScoreHookInstalled ? "on" : "off");
+            s_variantTraceEnabled ? "on" : "off");
     }
 
     return true;
@@ -1433,8 +1363,10 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         InterlockedExchange(&s_rejectedCandidates, 0);
         InterlockedExchange(&s_glacierFallbackAssignments, 0);
         InterlockedExchange(&s_archFallbackAssignments, 0);
+        InterlockedExchange(&s_thinScoringRowOverrides, 0);
         s_snowMountainRowRecord = 0;
         s_wastelandStoneRowRecord = 0;
+        ZeroMemory(s_thinScoringReferenceRows, sizeof(s_thinScoringReferenceRows));
         ClearVariantTraceRows();
     }
 
