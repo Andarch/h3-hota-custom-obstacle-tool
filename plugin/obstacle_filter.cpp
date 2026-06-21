@@ -106,7 +106,7 @@ namespace
     {
         kNoReferenceRow,    // dirt
         kNoReferenceRow,    // sand
-        kNoReferenceRow,    // grass
+        32,                 // grass oak tree
         61,                 // snow pine tree
         kNoReferenceRow,    // swamp
         kNoReferenceRow,    // rough

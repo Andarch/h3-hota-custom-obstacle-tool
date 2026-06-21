@@ -830,15 +830,15 @@ Obstacle variants installed: ... trace=on
   pointer before native scoring. Broad all-terrain borrowing caused regressions:
   dirt generated nothing and new terrain-border gaps appeared. The current
   narrowed experiment borrows only:
+  - grass terrain `2` from row `32` (`grass oak tree`);
   - snow terrain `3` from row `61` (`snow pine tree`);
   - lava terrain `7` from row `119` (`lava mountain`);
   - wasteland terrain `11` from row `194` (`AVLrws03.def` stone, used for the
     `avlmtwl7.def` arch overlay).
-  Manual testing verified snow-side and lava-side gap cells can generate after
-  the narrowed row borrowing, but full all-terrain Thin validation is still
-  pending. After the working toolbar UI was verified, the user observed a
-  remaining Thin gap on the grass side of the grass/sand boundary; defer that
-  to the next placement/scoring investigation.
+  Manual testing verified snow-side, lava-side, and grass-side boundary gap
+  cells can generate after the narrowed row borrowing. On 2026-06-21, the user
+  confirmed an all-terrain Thin test had all tiles covered after the grass row
+  borrow was added.
 - Some `rand_trn.txt` object families are mixed at the DEF level. Examples:
   `(119,0)` has 40 thick and 1 thin DEF, `(140,2)` has 42 thick and 12 thin,
   `(147,0)` has 7 thick and 21 thin, and several terrain decoration families
