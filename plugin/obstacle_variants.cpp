@@ -7,6 +7,7 @@
 
 #include <commctrl.h>
 #include <cstring>
+#include <new>
 
 namespace
 {
@@ -14,13 +15,26 @@ namespace
     constexpr UINT kVanillaPlaceObstaclesCommand = 32927;
     constexpr UINT kPlaceThickObstaclesCommand = 0x7001;
     constexpr UINT kPlaceThinObstaclesCommand = 0x7002;
+    constexpr int kCategoryPlaceholderCount = 8;
+    constexpr int kCategoryButtonsPerRow = 4;
+    constexpr int kCategoryButtonSize = 24;
     constexpr DWORD kPollIntervalMs = 500;
 
     struct VariantPanel
     {
         HWND parent = nullptr;
         HWND sourceToolbar = nullptr;
+        HWND categoryButtons[kCategoryPlaceholderCount] = {};
         DWORD threadId = 0;
+        bool layoutApplied = false;
+    };
+
+    struct CategoryButtonState
+    {
+        bool checked = true;
+        bool hot = false;
+        bool pressed = false;
+        int index = 0;
     };
 
     VariantPanel s_panels[8] = {};
@@ -29,6 +43,15 @@ namespace
     HMODULE s_pluginModule = nullptr;
     HHOOK s_getMessageHook = nullptr;
     DWORD s_getMessageHookThreadId = 0;
+    ATOM s_categoryButtonClass = 0;
+
+    UINT CategoryLayoutMessage()
+    {
+        static UINT message = RegisterWindowMessageA("HotaMapEdPlugin.InstallObstacleCategoryButtons");
+        return message;
+    }
+
+    bool AddVariantToolbarButtons(VariantPanel& panel);
 
     bool EnvValueEnabled(const char* value)
     {
@@ -71,6 +94,346 @@ namespace
         }
 
         return false;
+    }
+
+    int ToolbarCommandIndex(HWND toolbar, UINT commandId)
+    {
+        if (!IsToolbarClass(toolbar))
+            return -1;
+
+        const LRESULT count = SendMessageA(toolbar, TB_BUTTONCOUNT, 0, 0);
+        if (count <= 0 || count > 128)
+            return -1;
+
+        for (int i = 0; i < count; ++i)
+        {
+            TBBUTTON button = {};
+            if (!SendMessageA(toolbar, TB_GETBUTTON, i, reinterpret_cast<LPARAM>(&button)))
+                continue;
+            if (button.idCommand == static_cast<int>(commandId))
+                return i;
+        }
+
+        return -1;
+    }
+
+    bool RectInParent(HWND parent, HWND child, RECT& rect)
+    {
+        if (!GetWindowRect(child, &rect))
+            return false;
+
+        MapWindowPoints(HWND_DESKTOP, parent, reinterpret_cast<POINT*>(&rect), 2);
+        return true;
+    }
+
+    HWND FirstDirectChild(HWND parent)
+    {
+        return GetWindow(parent, GW_CHILD);
+    }
+
+    HWND NextSibling(HWND child)
+    {
+        return GetWindow(child, GW_HWNDNEXT);
+    }
+
+    bool WindowTextEquals(HWND hwnd, const char* expected)
+    {
+        char text[64] = {};
+        GetWindowTextA(hwnd, text, sizeof(text));
+        return strcmp(text, expected) == 0;
+    }
+
+    bool FindBrushSection(HWND parent, int minTop, RECT& brushLabelRect, RECT& brushToolbarRect)
+    {
+        HWND bestLabel = nullptr;
+        RECT bestLabelRect = {};
+        int bestTop = INT_MAX;
+
+        for (HWND child = FirstDirectChild(parent); child; child = NextSibling(child))
+        {
+            if (!IsWindowVisible(child) || !WindowTextEquals(child, "Brush"))
+                continue;
+
+            RECT rect = {};
+            if (!RectInParent(parent, child, rect))
+                continue;
+
+            if (rect.top >= minTop && rect.top < bestTop)
+            {
+                bestTop = rect.top;
+                bestLabel = child;
+                bestLabelRect = rect;
+            }
+        }
+
+        if (!bestLabel)
+            return false;
+
+        HWND bestToolbar = nullptr;
+        RECT bestToolbarRect = {};
+        bestTop = INT_MAX;
+
+        for (HWND child = FirstDirectChild(parent); child; child = NextSibling(child))
+        {
+            if (!IsWindowVisible(child) || !IsToolbarClass(child))
+                continue;
+
+            RECT rect = {};
+            if (!RectInParent(parent, child, rect))
+                continue;
+
+            if (rect.top > bestLabelRect.top && rect.top < bestTop)
+            {
+                bestTop = rect.top;
+                bestToolbar = child;
+                bestToolbarRect = rect;
+            }
+        }
+
+        if (!bestToolbar)
+            return false;
+
+        brushLabelRect = bestLabelRect;
+        brushToolbarRect = bestToolbarRect;
+        return true;
+    }
+
+    void MoveVisibleBrushSectionDown(HWND parent, int startTop, int delta)
+    {
+        for (HWND child = FirstDirectChild(parent); child; child = NextSibling(child))
+        {
+            if (!IsWindowVisible(child))
+                continue;
+
+            RECT rect = {};
+            if (!RectInParent(parent, child, rect))
+                continue;
+
+            if (rect.top < startTop)
+                continue;
+
+            SetWindowPos(
+                child,
+                nullptr,
+                rect.left,
+                rect.top + delta,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd)
+    {
+        return reinterpret_cast<CategoryButtonState*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+    }
+
+    void DrawCategoryButton(HWND hwnd, HDC hdc)
+    {
+        RECT rect = {};
+        GetClientRect(hwnd, &rect);
+
+        CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+        const bool checked = !state || state->checked;
+        const bool hot = state && state->hot;
+        const bool pressed = state && state->pressed;
+
+        HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
+        FillRect(hdc, &rect, background);
+        DeleteObject(background);
+
+        if (checked || hot || pressed)
+        {
+            const COLORREF fill =
+                pressed ? RGB(186, 226, 255) :
+                hot ? RGB(214, 238, 255) :
+                RGB(229, 245, 255);
+            HBRUSH fillBrush = CreateSolidBrush(fill);
+            RECT fillRect = rect;
+            InflateRect(&fillRect, -1, -1);
+            FillRect(hdc, &fillRect, fillBrush);
+            DeleteObject(fillBrush);
+
+            HPEN framePen = CreatePen(PS_SOLID, 1, RGB(148, 213, 255));
+            HGDIOBJ oldPen = SelectObject(hdc, framePen);
+            HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 4, 4);
+            SelectObject(hdc, oldBrush);
+            SelectObject(hdc, oldPen);
+            DeleteObject(framePen);
+        }
+
+        const int glyph = kCategoryButtonSize;
+        RECT glyphRect =
+        {
+            (rect.right - glyph) / 2,
+            (rect.bottom - glyph) / 2,
+            (rect.right + glyph) / 2,
+            (rect.bottom + glyph) / 2,
+        };
+
+        HPEN outline = CreatePen(PS_SOLID, 2, RGB(128, 128, 255));
+        HGDIOBJ oldPen = SelectObject(hdc, outline);
+        HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        Rectangle(hdc, glyphRect.left + 4, glyphRect.top + 4, glyphRect.right - 4, glyphRect.bottom - 4);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(outline);
+    }
+
+    LRESULT CALLBACK CategoryButtonWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        switch (message)
+        {
+        case WM_NCCREATE:
+        {
+            CREATESTRUCTA* create = reinterpret_cast<CREATESTRUCTA*>(lParam);
+            SetWindowLongPtrA(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+            return TRUE;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT:
+        {
+            PAINTSTRUCT ps = {};
+            HDC hdc = BeginPaint(hwnd, &ps);
+            DrawCategoryButton(hwnd, hdc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_MOUSEMOVE:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state && !state->hot)
+            {
+                state->hot = true;
+                TRACKMOUSEEVENT track = {};
+                track.cbSize = sizeof(track);
+                track.dwFlags = TME_LEAVE;
+                track.hwndTrack = hwnd;
+                TrackMouseEvent(&track);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+            {
+                state->hot = false;
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_LBUTTONDOWN:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+            {
+                state->pressed = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_LBUTTONUP:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+            {
+                POINT point =
+                {
+                    static_cast<SHORT>(LOWORD(lParam)),
+                    static_cast<SHORT>(HIWORD(lParam)),
+                };
+                RECT rect = {};
+                GetClientRect(hwnd, &rect);
+                if (state->pressed && PtInRect(&rect, point))
+                    state->checked = !state->checked;
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_CANCELMODE:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+            {
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_NCDESTROY:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
+            delete state;
+            return 0;
+        }
+        }
+
+        return DefWindowProcA(hwnd, message, wParam, lParam);
+    }
+
+    bool EnsureCategoryButtonClass()
+    {
+        if (s_categoryButtonClass)
+            return true;
+
+        WNDCLASSEXA windowClass = {};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.lpfnWndProc = CategoryButtonWndProc;
+        windowClass.hInstance = s_pluginModule;
+        windowClass.hCursor = LoadCursorA(nullptr, IDC_ARROW);
+        windowClass.lpszClassName = "HotaMapEdPluginCategoryButton";
+
+        s_categoryButtonClass = RegisterClassExA(&windowClass);
+        if (!s_categoryButtonClass && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        {
+            LogFormat("Obstacle variants: failed to register category button class, gle=%lu.", GetLastError());
+            return false;
+        }
+
+        if (!s_categoryButtonClass)
+            s_categoryButtonClass = 1;
+        return true;
+    }
+
+    HWND CreateCategoryButton(HWND parent, int index, int x, int y)
+    {
+        CategoryButtonState* state = new (std::nothrow) CategoryButtonState();
+        if (!state)
+            return nullptr;
+        state->index = index;
+
+        HWND hwnd = CreateWindowExA(
+            0,
+            "HotaMapEdPluginCategoryButton",
+            nullptr,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+            x,
+            y,
+            32,
+            32,
+            parent,
+            nullptr,
+            s_pluginModule,
+            state);
+        if (!hwnd)
+        {
+            delete state;
+            return nullptr;
+        }
+
+        SetWindowPos(hwnd, HWND_TOP, x, y, 32, 32, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        UpdateWindow(hwnd);
+        return hwnd;
     }
 
     VariantPanel* FindPanelLocked(HWND toolbar)
@@ -159,7 +522,22 @@ namespace
         if (code >= 0 && wParam == PM_REMOVE)
         {
             MSG* message = reinterpret_cast<MSG*>(lParam);
-            if (message &&
+            if (message && message->message == CategoryLayoutMessage())
+            {
+                HWND toolbar = message->hwnd;
+                message->message = WM_NULL;
+                message->wParam = 0;
+                message->lParam = 0;
+
+                VariantPanel* panel = nullptr;
+                EnterCriticalSection(&s_panelLock);
+                panel = FindPanelLocked(toolbar);
+                LeaveCriticalSection(&s_panelLock);
+
+                if (panel && IsWindow(panel->sourceToolbar))
+                    AddVariantToolbarButtons(*panel);
+            }
+            else if (message &&
                 (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
             {
                 VariantPanel context;
@@ -193,85 +571,87 @@ namespace
         return CallNextHookEx(s_getMessageHook, code, wParam, lParam);
     }
 
-    bool ResizeToolbarForVariantButtons(HWND toolbar)
+    bool AddVariantToolbarButtons(VariantPanel& panel)
     {
-        HWND parent = GetParent(toolbar);
-        if (!parent)
+        HWND toolbar = panel.sourceToolbar;
+        HWND parent = panel.parent;
+        if (!toolbar || !parent)
             return false;
 
-        RECT toolbarRect = {};
-        RECT clientRect = {};
-        if (!GetWindowRect(toolbar, &toolbarRect) || !GetClientRect(parent, &clientRect))
-            return false;
-
-        MapWindowPoints(HWND_DESKTOP, parent, reinterpret_cast<POINT*>(&toolbarRect), 2);
-
-        SIZE maxSize = {};
-        SendMessageA(toolbar, TB_AUTOSIZE, 0, 0);
-        if (SendMessageA(toolbar, TB_GETMAXSIZE, 0, reinterpret_cast<LPARAM>(&maxSize)) &&
-            maxSize.cx > 0 && maxSize.cy > 0)
-        {
-            const int width = min(maxSize.cx + 8, clientRect.right - toolbarRect.left - 4);
-            const int height = max(toolbarRect.bottom - toolbarRect.top, maxSize.cy + 4);
-            SetWindowPos(
-                toolbar,
-                nullptr,
-                toolbarRect.left,
-                toolbarRect.top,
-                width,
-                height,
-                SWP_NOZORDER | SWP_NOACTIVATE);
+        if (panel.layoutApplied)
             return true;
-        }
 
-        const int width = min(toolbarRect.right - toolbarRect.left + 96, clientRect.right - toolbarRect.left - 4);
-        SetWindowPos(
-            toolbar,
-            nullptr,
-            toolbarRect.left,
-            toolbarRect.top,
-            width,
-            toolbarRect.bottom - toolbarRect.top,
-            SWP_NOZORDER | SWP_NOACTIVATE);
-        return true;
-    }
+        RECT placeRect = {};
+        if (!RectInParent(parent, toolbar, placeRect))
+            return false;
 
-    bool AddVariantToolbarButtons(HWND toolbar)
-    {
-        if (ToolbarHasCommand(toolbar, kPlaceThickObstaclesCommand) &&
-            ToolbarHasCommand(toolbar, kPlaceThinObstaclesCommand))
+        RECT brushLabelRect = {};
+        RECT brushToolbarRect = {};
+        if (!FindBrushSection(parent, placeRect.top, brushLabelRect, brushToolbarRect))
         {
-            SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThickObstaclesCommand, MAKELPARAM(TRUE, 0));
-            SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThinObstaclesCommand, MAKELPARAM(TRUE, 0));
-            ResizeToolbarForVariantButtons(toolbar);
-            return true;
-        }
-
-        SendMessageA(toolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
-
-        TBBUTTON buttons[2] = {};
-        buttons[0].iBitmap = I_IMAGENONE;
-        buttons[0].idCommand = kPlaceThickObstaclesCommand;
-        buttons[0].fsState = TBSTATE_ENABLED;
-        buttons[0].fsStyle = BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT;
-        buttons[0].iString = reinterpret_cast<INT_PTR>("Thick");
-
-        buttons[1].iBitmap = I_IMAGENONE;
-        buttons[1].idCommand = kPlaceThinObstaclesCommand;
-        buttons[1].fsState = TBSTATE_ENABLED;
-        buttons[1].fsStyle = BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT;
-        buttons[1].iString = reinterpret_cast<INT_PTR>("Thin");
-
-        if (!SendMessageA(toolbar, TB_ADDBUTTONSA, 2, reinterpret_cast<LPARAM>(buttons)))
-        {
-            LogMessage("Obstacle variants: failed to add toolbar buttons.");
+            LogMessage("Obstacle variants: could not find visible Brush section for category buttons.");
             return false;
         }
 
-        SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThickObstaclesCommand, MAKELPARAM(TRUE, 0));
-        SendMessageA(toolbar, TB_ENABLEBUTTON, kPlaceThinObstaclesCommand, MAKELPARAM(TRUE, 0));
-        ResizeToolbarForVariantButtons(toolbar);
-        InvalidateRect(toolbar, nullptr, TRUE);
+        constexpr int rowHeight = 32;
+        constexpr int rowGap = 4;
+        constexpr int sectionGap = 10;
+        const int totalCategoryHeight = rowHeight * 2 + rowGap + sectionGap;
+
+        MoveVisibleBrushSectionDown(parent, brushLabelRect.top, totalCategoryHeight);
+
+        const int x = brushToolbarRect.left;
+        const int firstRowY = brushLabelRect.top;
+        if (!EnsureCategoryButtonClass())
+        {
+            MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
+            return false;
+        }
+
+        bool createdAll = true;
+        for (int i = 0; i < kCategoryPlaceholderCount; ++i)
+        {
+            const int row = i / kCategoryButtonsPerRow;
+            const int col = i % kCategoryButtonsPerRow;
+            const int buttonX = x + col * rowHeight;
+            const int buttonY = firstRowY + row * (rowHeight + rowGap);
+            panel.categoryButtons[i] = CreateCategoryButton(parent, i, buttonX, buttonY);
+            if (!panel.categoryButtons[i])
+            {
+                createdAll = false;
+                break;
+            }
+        }
+
+        if (!createdAll)
+        {
+            LogMessage("Obstacle variants: failed to create category placeholder buttons.");
+            for (HWND& button : panel.categoryButtons)
+            {
+                if (button)
+                {
+                    DestroyWindow(button);
+                    button = nullptr;
+                }
+            }
+            MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
+            return false;
+        }
+
+        panel.layoutApplied = true;
+        InvalidateRect(parent, nullptr, TRUE);
+        for (HWND button : panel.categoryButtons)
+        {
+            InvalidateRect(button, nullptr, FALSE);
+            UpdateWindow(button);
+        }
+        LogFormat(
+            "Obstacle variants: created category placeholder buttons parent=%p first=%p x=%ld y=%ld movedBrushBy=%ld",
+            parent,
+            panel.categoryButtons[0],
+            x,
+            firstRowY,
+            totalCategoryHeight);
         return true;
     }
 
@@ -303,6 +683,28 @@ namespace
         return true;
     }
 
+    bool RequestCategoryLayout(HWND toolbar)
+    {
+        const UINT message = CategoryLayoutMessage();
+        if (!message)
+        {
+            LogFormat(
+                "Obstacle variants: failed to register category layout message, gle=%lu.",
+                GetLastError());
+            return false;
+        }
+
+        if (!PostMessageA(toolbar, message, 0, 0))
+        {
+            LogFormat(
+                "Obstacle variants: failed to post category layout message, gle=%lu.",
+                GetLastError());
+            return false;
+        }
+
+        return true;
+    }
+
     bool InstallPanelForToolbar(HWND toolbar)
     {
         HWND parent = GetParent(toolbar);
@@ -315,10 +717,17 @@ namespace
             return false;
 
         EnterCriticalSection(&s_panelLock);
-        if (FindPanelLocked(toolbar))
+        VariantPanel* existingPanel = FindPanelLocked(toolbar);
+        if (existingPanel)
         {
+            const bool alreadyApplied = existingPanel->layoutApplied;
             LeaveCriticalSection(&s_panelLock);
-            AddVariantToolbarButtons(toolbar);
+            if (!alreadyApplied)
+            {
+                if (!EnsureGetMessageHook(threadId))
+                    return false;
+                RequestCategoryLayout(toolbar);
+            }
             return true;
         }
         VariantPanel* panel = FindFreePanelLocked();
@@ -333,16 +742,6 @@ namespace
         panel->threadId = threadId;
         LeaveCriticalSection(&s_panelLock);
 
-        if (!AddVariantToolbarButtons(toolbar))
-        {
-            EnterCriticalSection(&s_panelLock);
-            VariantPanel* failedPanel = FindPanelLocked(toolbar);
-            if (failedPanel)
-                *failedPanel = VariantPanel();
-            LeaveCriticalSection(&s_panelLock);
-            return false;
-        }
-
         if (!EnsureGetMessageHook(threadId))
         {
             EnterCriticalSection(&s_panelLock);
@@ -353,8 +752,18 @@ namespace
             return false;
         }
 
+        if (!RequestCategoryLayout(toolbar))
+        {
+            EnterCriticalSection(&s_panelLock);
+            VariantPanel* failedPanel = FindPanelLocked(toolbar);
+            if (failedPanel)
+                *failedPanel = VariantPanel();
+            LeaveCriticalSection(&s_panelLock);
+            return false;
+        }
+
         LogFormat(
-            "Obstacle variants: installed toolbar buttons parent=%p toolbar=%p thicknessTable=%s",
+            "Obstacle variants: registered toolbar buttons parent=%p toolbar=%p thicknessTable=%s",
             parent,
             toolbar,
             ObstacleThicknessTableAvailable() ? "available" : "missing");
@@ -363,7 +772,7 @@ namespace
 
     BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM)
     {
-        if (ToolbarHasCommand(hwnd, kVanillaPlaceObstaclesCommand))
+        if (IsWindowVisible(hwnd) && ToolbarHasCommand(hwnd, kVanillaPlaceObstaclesCommand))
             InstallPanelForToolbar(hwnd);
         return TRUE;
     }
