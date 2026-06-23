@@ -975,6 +975,25 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   - Thick/Thin buttons are visible and clickable;
   - Thick/Thin generation works;
   - keyboard shortcuts work before and after clicking the new buttons.
+- Category-button placeholder UI was started after the Thick/Thin prototype:
+  eight 32x32 child-window buttons are placed below the native Place Obstacles
+  button in two rows of four, and the Brush section is moved down to make room.
+  The placeholders are nonfunctional except for local toggle/highlight state.
+  They mirror the native Place Obstacles enabled state by polling
+  `TB_GETSTATE(32927)` from each child window's own `WM_TIMER`; this was
+  manually verified to keep keyboard shortcuts working before and after using
+  the obstacle panel, and to gray buttons before paint / enable after paint /
+  gray again after clear or undo.
+- A terrain-specific enablement experiment hooked the native update-UI handler
+  at `h3hota_maped.exe:0x00484C9A` and tried to infer painted terrains from the
+  obstacle selection/tool object. It was reverted because it broke keyboard
+  shortcuts and fell back to enabling all category buttons. Statically verified
+  handler facts remain useful: command `32927` uses command handler
+  `0x00484B07`, and its update-UI handler at `0x00484C8E` checks obstacle mode
+  (`[esi+0x98] == 6`), a non-null selection/tool pointer (`[esi+0x64]`), and
+  collection counts before enabling the native Place Obstacles button. Do not
+  reintroduce repeated posted custom messages or this hook for category refresh
+  without a narrower runtime proof.
 
 Generator command after the workbook is classified:
 

@@ -19,7 +19,6 @@ namespace
     constexpr int kCategoryButtonsPerRow = 4;
     constexpr int kCategoryButtonSize = 24;
     constexpr DWORD kPollIntervalMs = 500;
-
     struct VariantPanel
     {
         HWND parent = nullptr;
@@ -31,7 +30,10 @@ namespace
 
     struct CategoryButtonState
     {
+        HWND sourceToolbar = nullptr;
         bool checked = true;
+        bool enabled = false;
+        bool wasEnabled = false;
         bool hot = false;
         bool pressed = false;
         int index = 0;
@@ -52,6 +54,44 @@ namespace
     }
 
     bool AddVariantToolbarButtons(VariantPanel& panel);
+    CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd);
+
+    bool NativePlaceObstaclesEnabled(HWND toolbar)
+    {
+        if (!toolbar)
+            return false;
+
+        const LRESULT state = SendMessageA(toolbar, TB_GETSTATE, kVanillaPlaceObstaclesCommand, 0);
+        if (state < 0)
+            return false;
+
+        return (state & TBSTATE_ENABLED) != 0;
+    }
+
+    void SetCategoryButtonEnabled(HWND hwnd, bool enabled)
+    {
+        CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+        if (!state || state->enabled == enabled)
+            return;
+
+        state->enabled = enabled;
+        state->hot = false;
+        state->pressed = false;
+        if (enabled && !state->wasEnabled)
+            state->checked = true;
+        state->wasEnabled = enabled;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+
+    void RefreshCategoryButtons(VariantPanel& panel)
+    {
+        if (!panel.layoutApplied || !panel.sourceToolbar)
+            return;
+
+        const bool enabled = NativePlaceObstaclesEnabled(panel.sourceToolbar);
+        for (HWND button : panel.categoryButtons)
+            SetCategoryButtonEnabled(button, enabled);
+    }
 
     bool EnvValueEnabled(const char* value)
     {
@@ -235,14 +275,15 @@ namespace
 
         CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
         const bool checked = !state || state->checked;
-        const bool hot = state && state->hot;
-        const bool pressed = state && state->pressed;
+        const bool enabled = state && state->enabled;
+        const bool hot = enabled && state->hot;
+        const bool pressed = enabled && state->pressed;
 
         HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
         FillRect(hdc, &rect, background);
         DeleteObject(background);
 
-        if (checked || hot || pressed)
+        if (enabled && (checked || hot || pressed))
         {
             const COLORREF fill =
                 pressed ? RGB(186, 226, 255) :
@@ -272,7 +313,10 @@ namespace
             (rect.bottom + glyph) / 2,
         };
 
-        HPEN outline = CreatePen(PS_SOLID, 2, RGB(128, 128, 255));
+        HPEN outline = CreatePen(
+            PS_SOLID,
+            2,
+            enabled ? RGB(128, 128, 255) : RGB(176, 176, 176));
         HGDIOBJ oldPen = SelectObject(hdc, outline);
         HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
         Rectangle(hdc, glyphRect.left + 4, glyphRect.top + 4, glyphRect.right - 4, glyphRect.bottom - 4);
@@ -301,10 +345,17 @@ namespace
             EndPaint(hwnd, &ps);
             return 0;
         }
+        case WM_TIMER:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+                SetCategoryButtonEnabled(hwnd, NativePlaceObstaclesEnabled(state->sourceToolbar));
+            return 0;
+        }
         case WM_MOUSEMOVE:
         {
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state && !state->hot)
+            if (state && state->enabled && !state->hot)
             {
                 state->hot = true;
                 TRACKMOUSEEVENT track = {};
@@ -332,7 +383,7 @@ namespace
         case WM_LBUTTONDOWN:
         {
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state)
+            if (state && state->enabled)
             {
                 state->pressed = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -342,7 +393,7 @@ namespace
         case WM_LBUTTONUP:
         {
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state)
+            if (state && state->enabled)
             {
                 POINT point =
                 {
@@ -370,6 +421,7 @@ namespace
         }
         case WM_NCDESTROY:
         {
+            KillTimer(hwnd, 1);
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
             SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
             delete state;
@@ -404,11 +456,12 @@ namespace
         return true;
     }
 
-    HWND CreateCategoryButton(HWND parent, int index, int x, int y)
+    HWND CreateCategoryButton(HWND parent, HWND sourceToolbar, int index, int x, int y)
     {
         CategoryButtonState* state = new (std::nothrow) CategoryButtonState();
         if (!state)
             return nullptr;
+        state->sourceToolbar = sourceToolbar;
         state->index = index;
 
         HWND hwnd = CreateWindowExA(
@@ -431,6 +484,7 @@ namespace
         }
 
         SetWindowPos(hwnd, HWND_TOP, x, y, 32, 32, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        SetTimer(hwnd, 1, 250, nullptr);
         InvalidateRect(hwnd, nullptr, FALSE);
         UpdateWindow(hwnd);
         return hwnd;
@@ -535,7 +589,10 @@ namespace
                 LeaveCriticalSection(&s_panelLock);
 
                 if (panel && IsWindow(panel->sourceToolbar))
+                {
                     AddVariantToolbarButtons(*panel);
+                    RefreshCategoryButtons(*panel);
+                }
             }
             else if (message &&
                 (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
@@ -615,7 +672,7 @@ namespace
             const int col = i % kCategoryButtonsPerRow;
             const int buttonX = x + col * rowHeight;
             const int buttonY = firstRowY + row * (rowHeight + rowGap);
-            panel.categoryButtons[i] = CreateCategoryButton(parent, i, buttonX, buttonY);
+            panel.categoryButtons[i] = CreateCategoryButton(parent, toolbar, i, buttonX, buttonY);
             if (!panel.categoryButtons[i])
             {
                 createdAll = false;
@@ -639,6 +696,7 @@ namespace
         }
 
         panel.layoutApplied = true;
+        RefreshCategoryButtons(panel);
         InvalidateRect(parent, nullptr, TRUE);
         for (HWND button : panel.categoryButtons)
         {
