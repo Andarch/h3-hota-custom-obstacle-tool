@@ -21,12 +21,11 @@ namespace
     constexpr int kCategoryButtonSize = 24;
     constexpr int kGridSelectionCollectionCount = 16;
     constexpr unsigned int kMaxMapDimensionTiles = 252;
-    constexpr DWORD kPollIntervalMs = 500;
+    constexpr DWORD kPollIntervalMs = 50;
     constexpr DWORD kObstacleUpdateCaptureAddress = 0x00484C9A;
     constexpr BYTE kObstacleUpdateCaptureExpected[] = { 0x8B, 0x46, 0x64, 0x85, 0xC0 };
     constexpr DWORD kObstacleUpdateCaptureResume = 0x00484C9F;
-    constexpr DWORD kTerrainMaskCacheIntervalMs = 50;
-    constexpr DWORD kTerrainMaskSettleIntervalMs = 500;
+    constexpr DWORD kCategoryRefreshTimerMs = 75;
 
     struct VariantPanel
     {
@@ -57,17 +56,8 @@ namespace
     ATOM s_categoryButtonClass = 0;
     BYTE s_updateCaptureOriginal[5] = {};
     volatile DWORD s_lastObstacleUiContext = 0;
-    HWND s_cachedTerrainToolbar = nullptr;
-    DWORD s_cachedTerrainContext = 0;
-    DWORD s_cachedTerrainMask = 0;
-    DWORD s_cachedTerrainTick = 0;
-    bool s_cachedNativeEnabled = false;
     DWORD s_lastLoggedAppliedTerrainMask = 0xFFFFFFFF;
     DWORD s_lastLoggedAppliedNativeEnabled = 0xFFFFFFFF;
-    DWORD s_stableTerrainMask = 0;
-    DWORD s_pendingTerrainMask = 0;
-    DWORD s_pendingTerrainMaskTick = 0;
-    bool s_hasPendingTerrainMask = false;
 
     using SelectCollectionFn = DWORD(__thiscall*)(void*, int);
     using TileAtFn = DWORD* (__thiscall*)(void*, int, int);
@@ -266,57 +256,10 @@ namespace
 
     CategoryEnablement GetCategoryEnablement(HWND toolbar)
     {
-        const DWORD now = GetTickCount();
-        const DWORD context = s_lastObstacleUiContext;
-        if (toolbar == s_cachedTerrainToolbar &&
-            context == s_cachedTerrainContext &&
-            now - s_cachedTerrainTick < kTerrainMaskCacheIntervalMs)
-        {
-            return { s_cachedNativeEnabled, s_cachedTerrainMask };
-        }
-
         CategoryEnablement enablement = {};
-        enablement.nativeEnabled = NativePlaceObstaclesEnabled(toolbar);
-        const DWORD rawTerrainMask = enablement.nativeEnabled ? ComputePaintedTerrainMask() : 0;
-
-        if (!enablement.nativeEnabled)
-        {
-            s_stableTerrainMask = 0;
-            s_pendingTerrainMask = 0;
-            s_pendingTerrainMaskTick = 0;
-            s_hasPendingTerrainMask = false;
-        }
-        else
-        {
-            const DWORD newBits = rawTerrainMask & ~s_stableTerrainMask;
-            if (newBits)
-            {
-                s_stableTerrainMask |= newBits;
-                s_hasPendingTerrainMask = false;
-            }
-
-            const DWORD missingBits = s_stableTerrainMask & ~rawTerrainMask;
-            if (missingBits)
-            {
-                if (!s_hasPendingTerrainMask || s_pendingTerrainMask != rawTerrainMask)
-                {
-                    s_pendingTerrainMask = rawTerrainMask;
-                    s_pendingTerrainMaskTick = now;
-                    s_hasPendingTerrainMask = true;
-                }
-                else if (now - s_pendingTerrainMaskTick >= kTerrainMaskSettleIntervalMs)
-                {
-                    s_stableTerrainMask = rawTerrainMask;
-                    s_hasPendingTerrainMask = false;
-                }
-            }
-            else
-            {
-                s_hasPendingTerrainMask = false;
-            }
-        }
-
-        enablement.terrainMask = s_stableTerrainMask;
+        const DWORD rawTerrainMask = ComputePaintedTerrainMask();
+        enablement.terrainMask = rawTerrainMask;
+        enablement.nativeEnabled = rawTerrainMask != 0;
 
         const DWORD nativeEnabledValue = enablement.nativeEnabled ? 1u : 0u;
         if (enablement.terrainMask != s_lastLoggedAppliedTerrainMask ||
@@ -331,11 +274,6 @@ namespace
                 rawTerrainMask);
         }
 
-        s_cachedTerrainToolbar = toolbar;
-        s_cachedTerrainContext = context;
-        s_cachedTerrainMask = enablement.terrainMask;
-        s_cachedTerrainTick = now;
-        s_cachedNativeEnabled = enablement.nativeEnabled;
         return enablement;
     }
 
@@ -347,8 +285,7 @@ namespace
 
         SetCategoryButtonEnabled(
             hwnd,
-            enablement.nativeEnabled &&
-                state->index < 32 &&
+            state->index < 32 &&
                 (enablement.terrainMask & (1u << state->index)) != 0);
     }
 
@@ -754,7 +691,7 @@ namespace
 
         SetWindowPos(hwnd, HWND_TOP, x, y, 32, 32, SWP_SHOWWINDOW | SWP_NOACTIVATE);
         if (index == 0)
-            SetTimer(hwnd, 1, 250, nullptr);
+            SetTimer(hwnd, 1, kCategoryRefreshTimerMs, nullptr);
         InvalidateRect(hwnd, nullptr, FALSE);
         UpdateWindow(hwnd);
         return hwnd;

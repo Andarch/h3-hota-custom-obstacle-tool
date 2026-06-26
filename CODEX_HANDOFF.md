@@ -1011,13 +1011,10 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
     `CellStateAt` reports a painted cell;
   - `0x0042B23E` returns the map terrain tile for `(x, y)`, and the terrain ID
     is `tile & 0x0F`.
-- The terrain mask is stabilized before applying it to category buttons. The
-  first placeholder category button owns the refresh timer and refreshes the
-  whole 8-button group from one terrain-mask snapshot, avoiding per-button
-  timer races. Newly seen terrain bits are enabled immediately; disappearing
-  bits must remain absent for a short settle window before being disabled.
-  Clear/undo still resets the accumulated state immediately when the native
-  Place Obstacles command becomes disabled.
+- Category-button enablement is intentionally stateless: each refresh scans the
+  current painted cells and enables only buttons whose terrain bit is present.
+  A zero mask means all buttons are disabled. Earlier cache/stabilization logic
+  caused stale buttons during undo after the full-map scan proved reliable.
 - Runtime validation through Computer Use on 2026-06-23:
   - category buttons are gray before obstacle painting;
   - painting only Dirt enables only placeholder button `0`;
