@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-06-20
+Last updated: 2026-06-25
 
 ## Purpose
 
@@ -984,16 +984,62 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   manually verified to keep keyboard shortcuts working before and after using
   the obstacle panel, and to gray buttons before paint / enable after paint /
   gray again after clear or undo.
-- A terrain-specific enablement experiment hooked the native update-UI handler
-  at `h3hota_maped.exe:0x00484C9A` and tried to infer painted terrains from the
-  obstacle selection/tool object. It was reverted because it broke keyboard
-  shortcuts and fell back to enabling all category buttons. Statically verified
-  handler facts remain useful: command `32927` uses command handler
-  `0x00484B07`, and its update-UI handler at `0x00484C8E` checks obstacle mode
-  (`[esi+0x98] == 6`), a non-null selection/tool pointer (`[esi+0x64]`), and
-  collection counts before enabling the native Place Obstacles button. Do not
-  reintroduce repeated posted custom messages or this hook for category refresh
-  without a narrower runtime proof.
+- Terrain-specific category-button enablement now hooks the native update-UI
+  handler at `h3hota_maped.exe:0x00484C9A` only to capture the live obstacle UI
+  context from `esi`. The hook preserves the original `mov eax, [esi+64h]` /
+  `test eax, eax` sequence and resumes at `0x00484C9F`.
+- Statically/runtime verified context fields used by the category UI:
+  - command `32927` uses command handler `0x00484B07`;
+  - update-UI handler `0x00484C8E` checks obstacle mode
+    (`[esi+0x98] == 6`) and selection/tool pointer (`[esi+0x64]`);
+  - selection holder is `[context+0x64]`;
+  - map context is `[context+0x3C]`;
+  - selection manager is `[[context+0x3C]+0x54]`.
+- Painted-terrain detection uses native helper calls instead of custom map
+  parsing:
+  - `0x00429EBD` selects map/selection collections from the selection manager;
+  - `0x0043C114` tests whether a selection-grid cell is painted for collection
+    indices `0..15`; runtime testing showed one-tile obstacle brush marks can
+    be reported outside collections `0`/`1`;
+  - terrain must still be read from the map terrain collection selected with
+    index `0`; using the painted selection collection as the tile collection
+    produced zero terrain masks for some row-two one-tile marks;
+  - do not trust the selection object's chunk dimensions as scan bounds. A
+    one-tile brush mark below map tile row `35` could be visibly painted but
+    missed when the scan height came from the selection metadata. The current
+    code scans the full supported map grid and only reads terrain after
+    `CellStateAt` reports a painted cell;
+  - `0x0042B23E` returns the map terrain tile for `(x, y)`, and the terrain ID
+    is `tile & 0x0F`.
+- The terrain mask is stabilized before applying it to category buttons. The
+  first placeholder category button owns the refresh timer and refreshes the
+  whole 8-button group from one terrain-mask snapshot, avoiding per-button
+  timer races. Newly seen terrain bits are enabled immediately; disappearing
+  bits must remain absent for a short settle window before being disabled.
+  Clear/undo still resets the accumulated state immediately when the native
+  Place Obstacles command becomes disabled.
+- Runtime validation through Computer Use on 2026-06-23:
+  - category buttons are gray before obstacle painting;
+  - painting only Dirt enables only placeholder button `0`;
+  - painting only Sand enables only placeholder button `1`;
+  - painting only Grass enables only placeholder button `2`;
+  - painting only Snow enables only placeholder button `3`;
+  - painting only Swamp enables only placeholder button `4`;
+  - painting only Rough enables only placeholder button `5`;
+  - painting only Subterranean enables only placeholder button `6`;
+  - painting only Lava enables only placeholder button `7`;
+  - undo disables the buttons again;
+  - `Ctrl+Z` still worked during this test.
+- Runtime validation through Computer Use on 2026-06-25 after the selection
+  scan fix:
+  - one-tile brush marks across terrain IDs `0..7` produced raw terrain mask
+    `0x000000FF` and enabled all eight placeholder category buttons;
+  - undoing all marks disabled the category buttons;
+  - repainting only second-row test terrains (`4..7`) produced raw terrain
+    mask `0x000000F0`, leaving the top placeholder row disabled and the bottom
+    placeholder row enabled.
+- Manual validation on 2026-06-25 found that second-row one-tile marks failed
+  below tile row `35`; switching to full-map scan bounds fixed those marks.
 
 Generator command after the workbook is classified:
 

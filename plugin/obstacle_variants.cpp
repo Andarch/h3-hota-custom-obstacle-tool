@@ -2,6 +2,7 @@
 #include "obstacle_variants.h"
 
 #include "logger.h"
+#include "hook.h"
 #include "obstacle_classification.h"
 #include "obstacle_filter.h"
 
@@ -18,7 +19,15 @@ namespace
     constexpr int kCategoryPlaceholderCount = 8;
     constexpr int kCategoryButtonsPerRow = 4;
     constexpr int kCategoryButtonSize = 24;
+    constexpr int kGridSelectionCollectionCount = 16;
+    constexpr unsigned int kMaxMapDimensionTiles = 252;
     constexpr DWORD kPollIntervalMs = 500;
+    constexpr DWORD kObstacleUpdateCaptureAddress = 0x00484C9A;
+    constexpr BYTE kObstacleUpdateCaptureExpected[] = { 0x8B, 0x46, 0x64, 0x85, 0xC0 };
+    constexpr DWORD kObstacleUpdateCaptureResume = 0x00484C9F;
+    constexpr DWORD kTerrainMaskCacheIntervalMs = 50;
+    constexpr DWORD kTerrainMaskSettleIntervalMs = 500;
+
     struct VariantPanel
     {
         HWND parent = nullptr;
@@ -46,6 +55,48 @@ namespace
     HHOOK s_getMessageHook = nullptr;
     DWORD s_getMessageHookThreadId = 0;
     ATOM s_categoryButtonClass = 0;
+    BYTE s_updateCaptureOriginal[5] = {};
+    volatile DWORD s_lastObstacleUiContext = 0;
+    HWND s_cachedTerrainToolbar = nullptr;
+    DWORD s_cachedTerrainContext = 0;
+    DWORD s_cachedTerrainMask = 0;
+    DWORD s_cachedTerrainTick = 0;
+    bool s_cachedNativeEnabled = false;
+    DWORD s_lastLoggedAppliedTerrainMask = 0xFFFFFFFF;
+    DWORD s_lastLoggedAppliedNativeEnabled = 0xFFFFFFFF;
+    DWORD s_stableTerrainMask = 0;
+    DWORD s_pendingTerrainMask = 0;
+    DWORD s_pendingTerrainMaskTick = 0;
+    bool s_hasPendingTerrainMask = false;
+
+    using SelectCollectionFn = DWORD(__thiscall*)(void*, int);
+    using TileAtFn = DWORD* (__thiscall*)(void*, int, int);
+    using CellStateAtFn = int(__thiscall*)(void*, unsigned int, unsigned int, unsigned char);
+
+    struct GridSelectionScanStats
+    {
+        DWORD mask = 0;
+        DWORD paintedCells = 0;
+        unsigned int minX = 0xFFFFFFFF;
+        unsigned int minY = 0xFFFFFFFF;
+        unsigned int maxX = 0;
+        unsigned int maxY = 0;
+    };
+
+    SelectCollectionFn SelectCollection()
+    {
+        return reinterpret_cast<SelectCollectionFn>(0x00429EBD);
+    }
+
+    TileAtFn TileAt()
+    {
+        return reinterpret_cast<TileAtFn>(0x0042B23E);
+    }
+
+    CellStateAtFn CellStateAt()
+    {
+        return reinterpret_cast<CellStateAtFn>(0x0043C114);
+    }
 
     UINT CategoryLayoutMessage()
     {
@@ -53,8 +104,132 @@ namespace
         return message;
     }
 
+    UINT CategoryRefreshMessage()
+    {
+        static UINT message = RegisterWindowMessageA("HotaMapEdPlugin.RefreshObstacleCategoryButtons");
+        return message;
+    }
+
     bool AddVariantToolbarButtons(VariantPanel& panel);
     CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd);
+    void RefreshCategoryButtonsForToolbar(HWND toolbar);
+
+    void __stdcall CaptureObstacleUiContext(DWORD context)
+    {
+        s_lastObstacleUiContext = context;
+    }
+
+    __declspec(naked) void ObstacleUpdateCaptureHook()
+    {
+        __asm
+        {
+            pushad
+            push esi
+            call CaptureObstacleUiContext
+            popad
+            mov eax, [esi+64h]
+            test eax, eax
+            jmp kObstacleUpdateCaptureResume
+        }
+    }
+
+    bool SafeReadDword(DWORD address, DWORD& value)
+    {
+        __try
+        {
+            value = *reinterpret_cast<DWORD*>(address);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            value = 0;
+            return false;
+        }
+    }
+
+    bool AddGridSelectionTerrainMask(
+        void* selection,
+        void* terrainCollection,
+        int collectionIndex,
+        GridSelectionScanStats& stats)
+    {
+        bool found = false;
+
+        __try
+        {
+            for (unsigned int y = 0; y < kMaxMapDimensionTiles; ++y)
+            {
+                for (unsigned int x = 0; x < kMaxMapDimensionTiles; ++x)
+                {
+                    if (CellStateAt()(selection, x, y, static_cast<unsigned char>(collectionIndex)) == 0)
+                        continue;
+
+                    ++stats.paintedCells;
+                    if (x < stats.minX)
+                        stats.minX = x;
+                    if (y < stats.minY)
+                        stats.minY = y;
+                    if (x > stats.maxX)
+                        stats.maxX = x;
+                    if (y > stats.maxY)
+                        stats.maxY = y;
+
+                    DWORD* tile = TileAt()(terrainCollection, static_cast<int>(x), static_cast<int>(y));
+                    if (tile)
+                    {
+                        stats.mask |= 1u << ((*tile) & 0x0F);
+                        found = true;
+                    }
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+
+        return found;
+    }
+
+    DWORD ComputePaintedTerrainMask()
+    {
+        DWORD context = s_lastObstacleUiContext;
+        if (!context)
+            return 0;
+
+        DWORD mode = 0;
+        DWORD selection = 0;
+        DWORD mapContext = 0;
+        DWORD selectionManager = 0;
+        if (!SafeReadDword(context + 0x98, mode) ||
+            mode != 6 ||
+            !SafeReadDword(context + 0x64, selection) ||
+            !selection ||
+            !SafeReadDword(context + 0x3C, mapContext) ||
+            !mapContext ||
+            !SafeReadDword(mapContext + 0x54, selectionManager) ||
+            !selectionManager)
+            return 0;
+
+        void* terrainCollection = reinterpret_cast<void*>(
+            SelectCollection()(reinterpret_cast<void*>(selectionManager), 0));
+        if (!terrainCollection)
+            return 0;
+
+        GridSelectionScanStats stats[kGridSelectionCollectionCount] = {};
+        DWORD mask = 0;
+        for (int index = 0; index < kGridSelectionCollectionCount; ++index)
+        {
+            AddGridSelectionTerrainMask(
+                reinterpret_cast<void*>(selection),
+                terrainCollection,
+                index,
+                stats[index]);
+            mask |= stats[index].mask;
+        }
+
+        return mask;
+    }
 
     bool NativePlaceObstaclesEnabled(HWND toolbar)
     {
@@ -83,14 +258,108 @@ namespace
         InvalidateRect(hwnd, nullptr, FALSE);
     }
 
+    struct CategoryEnablement
+    {
+        bool nativeEnabled = false;
+        DWORD terrainMask = 0;
+    };
+
+    CategoryEnablement GetCategoryEnablement(HWND toolbar)
+    {
+        const DWORD now = GetTickCount();
+        const DWORD context = s_lastObstacleUiContext;
+        if (toolbar == s_cachedTerrainToolbar &&
+            context == s_cachedTerrainContext &&
+            now - s_cachedTerrainTick < kTerrainMaskCacheIntervalMs)
+        {
+            return { s_cachedNativeEnabled, s_cachedTerrainMask };
+        }
+
+        CategoryEnablement enablement = {};
+        enablement.nativeEnabled = NativePlaceObstaclesEnabled(toolbar);
+        const DWORD rawTerrainMask = enablement.nativeEnabled ? ComputePaintedTerrainMask() : 0;
+
+        if (!enablement.nativeEnabled)
+        {
+            s_stableTerrainMask = 0;
+            s_pendingTerrainMask = 0;
+            s_pendingTerrainMaskTick = 0;
+            s_hasPendingTerrainMask = false;
+        }
+        else
+        {
+            const DWORD newBits = rawTerrainMask & ~s_stableTerrainMask;
+            if (newBits)
+            {
+                s_stableTerrainMask |= newBits;
+                s_hasPendingTerrainMask = false;
+            }
+
+            const DWORD missingBits = s_stableTerrainMask & ~rawTerrainMask;
+            if (missingBits)
+            {
+                if (!s_hasPendingTerrainMask || s_pendingTerrainMask != rawTerrainMask)
+                {
+                    s_pendingTerrainMask = rawTerrainMask;
+                    s_pendingTerrainMaskTick = now;
+                    s_hasPendingTerrainMask = true;
+                }
+                else if (now - s_pendingTerrainMaskTick >= kTerrainMaskSettleIntervalMs)
+                {
+                    s_stableTerrainMask = rawTerrainMask;
+                    s_hasPendingTerrainMask = false;
+                }
+            }
+            else
+            {
+                s_hasPendingTerrainMask = false;
+            }
+        }
+
+        enablement.terrainMask = s_stableTerrainMask;
+
+        const DWORD nativeEnabledValue = enablement.nativeEnabled ? 1u : 0u;
+        if (enablement.terrainMask != s_lastLoggedAppliedTerrainMask ||
+            nativeEnabledValue != s_lastLoggedAppliedNativeEnabled)
+        {
+            s_lastLoggedAppliedTerrainMask = enablement.terrainMask;
+            s_lastLoggedAppliedNativeEnabled = nativeEnabledValue;
+            LogFormat(
+                "Obstacle variants category: applied terrain mask=0x%08lX nativeEnabled=%lu raw=0x%08lX.",
+                enablement.terrainMask,
+                nativeEnabledValue,
+                rawTerrainMask);
+        }
+
+        s_cachedTerrainToolbar = toolbar;
+        s_cachedTerrainContext = context;
+        s_cachedTerrainMask = enablement.terrainMask;
+        s_cachedTerrainTick = now;
+        s_cachedNativeEnabled = enablement.nativeEnabled;
+        return enablement;
+    }
+
+    void RefreshCategoryButton(HWND hwnd, const CategoryEnablement& enablement)
+    {
+        CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+        if (!state)
+            return;
+
+        SetCategoryButtonEnabled(
+            hwnd,
+            enablement.nativeEnabled &&
+                state->index < 32 &&
+                (enablement.terrainMask & (1u << state->index)) != 0);
+    }
+
     void RefreshCategoryButtons(VariantPanel& panel)
     {
         if (!panel.layoutApplied || !panel.sourceToolbar)
             return;
 
-        const bool enabled = NativePlaceObstaclesEnabled(panel.sourceToolbar);
+        const CategoryEnablement enablement = GetCategoryEnablement(panel.sourceToolbar);
         for (HWND button : panel.categoryButtons)
-            SetCategoryButtonEnabled(button, enabled);
+            RefreshCategoryButton(button, enablement);
     }
 
     bool EnvValueEnabled(const char* value)
@@ -348,8 +617,8 @@ namespace
         case WM_TIMER:
         {
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state)
-                SetCategoryButtonEnabled(hwnd, NativePlaceObstaclesEnabled(state->sourceToolbar));
+            if (state && state->index == 0)
+                RefreshCategoryButtonsForToolbar(state->sourceToolbar);
             return 0;
         }
         case WM_MOUSEMOVE:
@@ -484,7 +753,8 @@ namespace
         }
 
         SetWindowPos(hwnd, HWND_TOP, x, y, 32, 32, SWP_SHOWWINDOW | SWP_NOACTIVATE);
-        SetTimer(hwnd, 1, 250, nullptr);
+        if (index == 0)
+            SetTimer(hwnd, 1, 250, nullptr);
         InvalidateRect(hwnd, nullptr, FALSE);
         UpdateWindow(hwnd);
         return hwnd;
@@ -498,6 +768,55 @@ namespace
                 return &panel;
         }
         return nullptr;
+    }
+
+    void RefreshCategoryButtonsForToolbar(HWND toolbar)
+    {
+        if (!s_panelLockInitialized || !toolbar)
+            return;
+
+        EnterCriticalSection(&s_panelLock);
+        VariantPanel* panel = FindPanelLocked(toolbar);
+        if (panel)
+            RefreshCategoryButtons(*panel);
+        LeaveCriticalSection(&s_panelLock);
+    }
+
+    void RefreshAllCategoryButtons()
+    {
+        if (!s_panelLockInitialized)
+            return;
+
+        EnterCriticalSection(&s_panelLock);
+        for (VariantPanel& panel : s_panels)
+        {
+            if (panel.sourceToolbar && IsWindow(panel.sourceToolbar))
+                RefreshCategoryButtons(panel);
+        }
+        LeaveCriticalSection(&s_panelLock);
+    }
+
+    bool MessageCanAffectObstacleSelection(UINT message)
+    {
+        return message == WM_LBUTTONDOWN ||
+            message == WM_LBUTTONUP ||
+            message == WM_MOUSEMOVE ||
+            message == WM_KEYDOWN ||
+            message == WM_KEYUP;
+    }
+
+    void PostCategoryRefreshMessages()
+    {
+        if (!s_panelLockInitialized)
+            return;
+
+        EnterCriticalSection(&s_panelLock);
+        for (VariantPanel& panel : s_panels)
+        {
+            if (panel.parent && IsWindow(panel.parent))
+                PostMessageA(panel.parent, CategoryRefreshMessage(), 0, 0);
+        }
+        LeaveCriticalSection(&s_panelLock);
     }
 
     VariantPanel* FindFreePanelLocked()
@@ -594,9 +913,17 @@ namespace
                     RefreshCategoryButtons(*panel);
                 }
             }
+            else if (message && message->message == CategoryRefreshMessage())
+            {
+                message->message = WM_NULL;
+                message->wParam = 0;
+                message->lParam = 0;
+                RefreshAllCategoryButtons();
+            }
             else if (message &&
                 (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
             {
+                const UINT originalMessage = message->message;
                 VariantPanel context;
                 bool haveContext = false;
 
@@ -614,7 +941,6 @@ namespace
                     ObstacleGenerationFilterMode mode = ObstacleGenerationFilterMode::None;
                     if (HitTestVariantToolbarButton(context.sourceToolbar, message->lParam, mode))
                     {
-                        const UINT originalMessage = message->message;
                         message->message = WM_NULL;
                         message->wParam = 0;
                         message->lParam = 0;
@@ -622,6 +948,12 @@ namespace
                             RunObstacleVariantCommand(context.parent, context.sourceToolbar, mode);
                     }
                 }
+
+                PostCategoryRefreshMessages();
+            }
+            else if (message && MessageCanAffectObstacleSelection(message->message))
+            {
+                PostCategoryRefreshMessages();
             }
         }
 
@@ -763,6 +1095,30 @@ namespace
         return true;
     }
 
+    bool InstallObstacleUpdateCaptureHook(std::string& error)
+    {
+        HookSpec spec =
+        {
+            reinterpret_cast<void*>(kObstacleUpdateCaptureAddress),
+            kObstacleUpdateCaptureExpected,
+            sizeof(kObstacleUpdateCaptureExpected),
+        };
+
+        const HookResult result =
+            HookInstall(spec, ObstacleUpdateCaptureHook, s_updateCaptureOriginal);
+        if (result != HookResult::Success)
+        {
+            error = "could not install obstacle update capture hook: ";
+            error += HookResultName(result);
+            return false;
+        }
+
+        LogFormat(
+            "Obstacle variants: installed obstacle update capture hook at 0x%08lX.",
+            kObstacleUpdateCaptureAddress);
+        return true;
+    }
+
     bool InstallPanelForToolbar(HWND toolbar)
     {
         HWND parent = GetParent(toolbar);
@@ -878,6 +1234,9 @@ bool StartObstacleVariantUi(std::string& error)
         InitializeCriticalSection(&s_panelLock);
         s_panelLockInitialized = true;
     }
+
+    if (!s_updateCaptureOriginal[0] && !InstallObstacleUpdateCaptureHook(error))
+        return false;
 
     HANDLE thread = CreateThread(
         nullptr,
