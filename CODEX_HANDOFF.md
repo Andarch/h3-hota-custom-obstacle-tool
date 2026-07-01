@@ -1098,10 +1098,12 @@ Known plugin/borrowed RandTrn entries:
   applicable).
 
 The next planned workbook tab/table should be button-level, not DEF-level, and
-should drive category enablement and default selection. Suggested columns:
+should drive category enablement and default selection. Keep its terrain
+columns in the same visual bit order as the `Obstacles` tab and full 12-digit
+mask strings:
 
-`Category`, `Button`, `Default Selected`, `DRT`, `SND`, `GRS`, `SNW`, `SWP`,
-`RGH`, `SUB`, `LAV`, `WTR`, `RCK`, `HIG`, `WST`.
+`Category`, `Button`, `Default Selected`, `WST`, `HIG`, `RCK`, `WTR`, `LAV`,
+`SUB`, `RGH`, `SWP`, `SNW`, `GRS`, `SND`, `DRT`.
 
 Rock is void space; assume no category buttons enable for Rock unless the user
 explicitly changes that direction.
