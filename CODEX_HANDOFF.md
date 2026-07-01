@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-06-25
+Last updated: 2026-07-01
 
 ## Purpose
 
@@ -36,10 +36,10 @@ lowest-cost path for features that need HotA's native editor behavior.
   `objects.txt`.
 - The user provided a curated obstacle workbook:
   `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx`.
-  The workbook data used here contains only DEF filename, object name, object
-  ID, and object subtype. Treat its terrain-placement and editor-section source
-  values, if recovered later, as untrusted until compared against the live HotA
-  editor data.
+  The workbook has evolved into the source of truth for the planned category
+  obstacle UI. Use the `Obstacles` tab for DEF/category/filter metadata; do not
+  infer current behavior from the early four-column export mentioned in older
+  notes.
 - Repeated placement is a separate behavior:
   - additional activations should try to add obstacles over/among existing
     obstacles wherever the editor's native placement validator permits;
@@ -1038,17 +1038,90 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
 - Manual validation on 2026-06-25 found that second-row one-tile marks failed
   below tile row `35`; switching to full-map scan bounds fixed those marks.
 
-Generator command after the workbook is classified:
+### Current Obstacle Workbook Contract
+
+As of 2026-07-01, the workbook at
+`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx` is the planning
+source for replacing the temporary Thick/Thin UI with category toggles.
+
+Current `Obstacles` tab audit:
+
+- 865 obstacle rows;
+- 7 categories;
+- 60 planned buttons;
+- `Source` counts: 836 `hota`, 29 `plugin`;
+- 5 intentional custom random masks;
+- 56 `native bucket` RandTrn entries;
+- duplicate `edobjts.txt` keys are expected only for the dead-tree family and
+  `AVLf07g0.def`; combine those duplicate `Mask 12 B` values with bitwise OR.
+
+Important column meanings:
+
+- `Category`: the group heading in the obstacle panel, analogous to `Brush`.
+- `Button`: the category-toggle button under that heading.
+- `Source`: `hota` for native HotA objects, `plugin` for objects whose obstacle
+  generation behavior must be added or altered by this plugin.
+- `Leveraged RandTrn`: `self` means an exact native `rand_trn.txt` row exists;
+  `native bucket` means HotA already generates that object through a native
+  family/bucket even without an exact `rand_trn.txt` ID/SubID row; a DEF name
+  means borrow that DEF's native `rand_trn.txt` row behavior.
+- `Random Mask`: the random-obstacle/editor-section terrain mask the category
+  system should use.
+- `Is Custom`: true when `Random Mask` intentionally differs from
+  `edobjts Random Mask`.
+- `edobjts Random Mask`: the source mask from HotA 1.8.0 `edobjts.txt`, after
+  duplicate rows are OR-combined where needed.
+
+The 12 terrain bit columns are ordered:
+
+`WST`, `HIG`, `RCK`, `WTR`, `LAV`, `SUB`, `RGH`, `SWP`, `SNW`, `GRS`, `SND`,
+`DRT`.
+
+Use `edobjts.txt`, not `objects.txt`, as the trusted source for semantic
+editor-section/random-mask values. `objects.txt` is still useful for native
+template/footprint data, but some of its 12-bit random masks appear stale or
+wrong for editor behavior. All workbook DEFs currently exist in `edobjts.txt`,
+so the old ambiguous `Leveraged Template` column was removed.
+
+`Manual Mask` columns were also removed from the workbook. Manual placement is
+not part of the current customization plan, and changing it would be riskier
+because it is tied to native editor/game validation behavior.
+
+Known plugin/borrowed RandTrn entries:
+
+- `AVLGLC01.def` through `AVLGLC06.def` borrow `AVLmtsn1.def` through
+  `AVLmtsn6.def`;
+- `AVLMTWL7.def` borrows `AVLrws03.def`;
+- `AVLbon01.def` borrows `AVLbon02.def`;
+- the new burnt/crumbled/miscellaneous plugin rows borrow the DEFs recorded in
+  the workbook (`avlxsu04.def`, `avlxsu09.def`, and `AVLskul0.def` where
+  applicable).
+
+The next planned workbook tab/table should be button-level, not DEF-level, and
+should drive category enablement and default selection. Suggested columns:
+
+`Category`, `Button`, `Default Selected`, `DRT`, `SND`, `GRS`, `SNW`, `SWP`,
+`RGH`, `SUB`, `LAV`, `WTR`, `RCK`, `HIG`, `WST`.
+
+Rock is void space; assume no category buttons enable for Rock unless the user
+explicitly changes that direction.
+
+Existing Thick/Thin generator command after the workbook is classified:
 
 ```powershell
 & 'C:\Users\Andy\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
   tools\generate_obstacle_classification.py `
   --workbook 'C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx' `
-  --objects 'C:\Users\Andy\Games\3DO\Heroes3\Data\objects.txt' `
+  --objects 'C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\objects.txt' `
   --output plugin\obstacle_classification.cpp
 ```
 
-Current generator validation:
+The extracted HotA source text files (`objects.txt`, `edobjts.txt`, and
+`rand_trn.txt`) are currently kept beside the workbook in
+`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod`. They should not be copied into
+`Heroes3\Data` unless intentionally testing LOD override behavior.
+
+Current Thick/Thin generator validation:
 
 - After adding trace-only candidate-score instrumentation, dormant `both`
   support, the Thick-only glacier overlay, and the Thin-only `avlbon01.def` /
@@ -1067,31 +1140,22 @@ Current generator validation:
   `avlrfx06.def` and `AVLrk2w0.def` classify as Thick instead of Thin. The
   generated classification changed exactly those two DEF hashes from `1` to
   `2`, intended to reduce intermittent Thick-mode water gaps. Debug Win32 and
-  Release Win32 builds passed after regeneration. Manual runtime validation is
-  still pending. Thin terrain-border gaps are intentionally deferred.
+  Release Win32 builds passed after regeneration, and the user later reported
+  the Thick water-gap behavior looked good.
+- Thin terrain-border gaps were fixed by the narrowed row-borrowing path and
+  committed as `948c593 Fill thin grass boundary gaps`. The user validated an
+  all-terrain Thin test where every painted tile was covered.
 
-Still requiring runtime validation:
+Follow-up notes:
 
 - Confirm normal `Place Obstacles [Shift+O]` behavior is unchanged when variant
-  mode is inactive.
-- Verify Thick generation on water after reclassifying `avlrfx06.def` and
-  `AVLrk2w0.def` as Thick.
+  mode is inactive if the old Thick/Thin command path remains exposed.
 - Thin generation was manually verified to place `avlbon01.def` and
   `avlmtwl7.def`.
 - Debug Win32 and Release Win32 builds passed after the `avlmtwl7.def`
   wasteland-stone fallback was added.
-- Capture one trace-enabled Thin generation over the boundary-gap test area and
-  inspect the per-row summary. Rows with many `finalRejected` entries indicate
-  the generator is selecting native tree/mountain rows whose DEFs are mostly
-  filtered out. Score-path tracing is intentionally unavailable until a safe
-  HotA-generated-wrapper observation point is identified.
-- Decide whether Thin boundary gaps should be fixed by:
-  - a narrow score/matrix adjustment while Thin mode is active, after trace
-    evidence proves the exact rejected rows; or
-  - marking selected terrain tree DEFs as `both` in the workbook as a simpler
-    fallback; or
-  - accepting the gaps as native generator behavior under a filtered candidate
-    set.
+- Revalidate the old Thick/Thin commands only if they remain exposed after the
+  category-button UI replaces them.
 - During drag preview, a wrapper previously named `sub_42A069` calls the real
   placement validator previously named `sub_42616A`.
 - `sub_42616A` appears to:
