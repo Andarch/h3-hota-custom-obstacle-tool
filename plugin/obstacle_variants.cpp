@@ -40,8 +40,7 @@ namespace
     {
         HWND sourceToolbar = nullptr;
         bool checked = true;
-        bool enabled = false;
-        bool wasEnabled = false;
+        bool enabled = true;
         bool hot = false;
         bool pressed = false;
         int index = 0;
@@ -58,6 +57,12 @@ namespace
     volatile DWORD s_lastObstacleUiContext = 0;
     DWORD s_lastLoggedAppliedTerrainMask = 0xFFFFFFFF;
     DWORD s_lastLoggedAppliedNativeEnabled = 0xFFFFFFFF;
+    DWORD s_lastStablePaintedTerrainMask = 0;
+    bool s_categoryChecked[kCategoryPlaceholderCount] =
+    {
+        true, true, true, true,
+        true, true, true, true,
+    };
 
     using SelectCollectionFn = DWORD(__thiscall*)(void*, int);
     using TileAtFn = DWORD* (__thiscall*)(void*, int, int);
@@ -242,15 +247,12 @@ namespace
         state->enabled = enabled;
         state->hot = false;
         state->pressed = false;
-        if (enabled && !state->wasEnabled)
-            state->checked = true;
-        state->wasEnabled = enabled;
         InvalidateRect(hwnd, nullptr, FALSE);
     }
 
     struct CategoryEnablement
     {
-        bool nativeEnabled = false;
+        bool hasPaintedCells = false;
         DWORD terrainMask = 0;
     };
 
@@ -258,20 +260,32 @@ namespace
     {
         CategoryEnablement enablement = {};
         const DWORD rawTerrainMask = ComputePaintedTerrainMask();
-        enablement.terrainMask = rawTerrainMask;
-        enablement.nativeEnabled = rawTerrainMask != 0;
+        const bool nativePlaceEnabled = NativePlaceObstaclesEnabled(toolbar);
+        if (nativePlaceEnabled)
+        {
+            if (rawTerrainMask != 0)
+                s_lastStablePaintedTerrainMask = rawTerrainMask;
+        }
+        else
+        {
+            s_lastStablePaintedTerrainMask = 0;
+        }
 
-        const DWORD nativeEnabledValue = enablement.nativeEnabled ? 1u : 0u;
+        enablement.terrainMask = nativePlaceEnabled ? s_lastStablePaintedTerrainMask : 0;
+        enablement.hasPaintedCells = enablement.terrainMask != 0;
+
+        const DWORD paintedValue = enablement.hasPaintedCells ? 1u : 0u;
         if (enablement.terrainMask != s_lastLoggedAppliedTerrainMask ||
-            nativeEnabledValue != s_lastLoggedAppliedNativeEnabled)
+            paintedValue != s_lastLoggedAppliedNativeEnabled)
         {
             s_lastLoggedAppliedTerrainMask = enablement.terrainMask;
-            s_lastLoggedAppliedNativeEnabled = nativeEnabledValue;
+            s_lastLoggedAppliedNativeEnabled = paintedValue;
             LogFormat(
-                "Obstacle variants category: applied terrain mask=0x%08lX nativeEnabled=%lu raw=0x%08lX.",
+                "Obstacle variants category: applied terrain mask=0x%08lX painted=%lu raw=0x%08lX nativeEnabled=%lu.",
                 enablement.terrainMask,
-                nativeEnabledValue,
-                rawTerrainMask);
+                paintedValue,
+                rawTerrainMask,
+                nativePlaceEnabled ? 1u : 0u);
         }
 
         return enablement;
@@ -285,8 +299,9 @@ namespace
 
         SetCategoryButtonEnabled(
             hwnd,
-            state->index < 32 &&
-                (enablement.terrainMask & (1u << state->index)) != 0);
+            !enablement.hasPaintedCells ||
+            (state->index < 32 &&
+                (enablement.terrainMask & (1u << state->index)) != 0));
     }
 
     void RefreshCategoryButtons(VariantPanel& panel)
@@ -609,7 +624,11 @@ namespace
                 RECT rect = {};
                 GetClientRect(hwnd, &rect);
                 if (state->pressed && PtInRect(&rect, point))
+                {
                     state->checked = !state->checked;
+                    if (state->index >= 0 && state->index < kCategoryPlaceholderCount)
+                        s_categoryChecked[state->index] = state->checked;
+                }
                 state->pressed = false;
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
@@ -669,6 +688,8 @@ namespace
             return nullptr;
         state->sourceToolbar = sourceToolbar;
         state->index = index;
+        if (index >= 0 && index < kCategoryPlaceholderCount)
+            state->checked = s_categoryChecked[index];
 
         HWND hwnd = CreateWindowExA(
             0,

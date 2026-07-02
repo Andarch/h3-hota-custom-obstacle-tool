@@ -979,11 +979,7 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   eight 32x32 child-window buttons are placed below the native Place Obstacles
   button in two rows of four, and the Brush section is moved down to make room.
   The placeholders are nonfunctional except for local toggle/highlight state.
-  They mirror the native Place Obstacles enabled state by polling
-  `TB_GETSTATE(32927)` from each child window's own `WM_TIMER`; this was
-  manually verified to keep keyboard shortcuts working before and after using
-  the obstacle panel, and to gray buttons before paint / enable after paint /
-  gray again after clear or undo.
+  They are test controls for the planned category-toggle behavior.
 - Terrain-specific category-button enablement now hooks the native update-UI
   handler at `h3hota_maped.exe:0x00484C9A` only to capture the live obstacle UI
   context from `esi`. The hook preserves the original `mov eax, [esi+64h]` /
@@ -1011,10 +1007,20 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
     `CellStateAt` reports a painted cell;
   - `0x0042B23E` returns the map terrain tile for `(x, y)`, and the terrain ID
     is `tile & 0x0F`.
-- Category-button enablement is intentionally stateless: each refresh scans the
-  current painted cells and enables only buttons whose terrain bit is present.
-  A zero mask means all buttons are disabled. Earlier cache/stabilization logic
-  caused stale buttons during undo after the full-map scan proved reliable.
+- Category-button enablement currently uses the native Place Obstacles toolbar
+  state only to decide whether the scanned terrain mask is meaningful. Before
+  painting, or after generation/clear/undo leaves no active obstacle paint
+  area, all placeholder category buttons remain enabled so the user can set
+  category intent before painting. While an active painted area exists, only
+  buttons whose terrain bit is present remain enabled.
+- Category-button checked state is independent of enabled state and is stored
+  outside the child windows. This preserves user customization when buttons
+  temporarily gray out or the editor recreates the side panel/buttons after
+  generating obstacles or switching tools.
+- While the native Place Obstacles command remains enabled, the UI keeps the
+  last nonzero scanned terrain mask. This avoids flicker from transient empty
+  scan results during paint/undo/refresh. When the native command disables, the
+  stable mask is cleared and all placeholder buttons become enabled again.
 - Runtime validation through Computer Use on 2026-06-23:
   - category buttons are gray before obstacle painting;
   - painting only Dirt enables only placeholder button `0`;
@@ -1037,6 +1043,10 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
     placeholder row enabled.
 - Manual validation on 2026-06-25 found that second-row one-tile marks failed
   below tile row `35`; switching to full-map scan bounds fixed those marks.
+- Manual validation on 2026-07-02 confirmed the newer initial-state behavior:
+  all placeholder category buttons are enabled before painting; painting gates
+  them by terrain; user-checked state survives generating obstacles, undo,
+  clearing, and returning to the no-painted-area state.
 
 ### Current Obstacle Workbook Contract
 
