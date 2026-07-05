@@ -1031,7 +1031,10 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   button. The native button remains underneath so editor internals stay
   undisturbed, but user clicks hit the overlay. The overlay is a child of the
   native toolbar and is positioned from the native command `32927` item
-  rectangle, which keeps it visible over toolbar repaints.
+  rectangle, which keeps it visible over toolbar repaints. The overlay draws
+  the native toolbar image-list icon and owns its own
+  `Place Obstacles [Shift+O]` tooltip, so `comctl32.lib` is an explicit plugin
+  linker dependency.
 - The Place overlay is enabled only when a painted area exists and at least one
   terrain-applicable category button is checked. If the effective category pool
   is empty, the overlay draws disabled and click does nothing. The UI-thread

@@ -29,6 +29,7 @@ namespace
     constexpr BYTE kObstacleUpdateCaptureExpected[] = { 0x8B, 0x46, 0x64, 0x85, 0xC0 };
     constexpr DWORD kObstacleUpdateCaptureResume = 0x00484C9F;
     constexpr DWORD kCategoryRefreshTimerMs = 75;
+    char kPlaceOverlayTooltip[] = "Place Obstacles [Shift+O]";
 
     struct VariantPanel
     {
@@ -54,6 +55,7 @@ namespace
     {
         HWND parent = nullptr;
         HWND sourceToolbar = nullptr;
+        HWND tooltip = nullptr;
         bool enabled = false;
         bool hot = false;
         bool pressed = false;
@@ -579,6 +581,19 @@ namespace
         return -1;
     }
 
+    bool ToolbarCommandButton(HWND toolbar, UINT commandId, TBBUTTON& outButton)
+    {
+        const int index = ToolbarCommandIndex(toolbar, commandId);
+        if (index < 0)
+            return false;
+
+        return SendMessageA(
+            toolbar,
+            TB_GETBUTTON,
+            static_cast<WPARAM>(index),
+            reinterpret_cast<LPARAM>(&outButton)) != 0;
+    }
+
     bool ToolbarCommandRect(HWND toolbar, UINT commandId, RECT& rect)
     {
         const int index = ToolbarCommandIndex(toolbar, commandId);
@@ -707,44 +722,73 @@ namespace
         return reinterpret_cast<PlaceOverlayState*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
     }
 
-    void DrawPlaceOverlayGlyph(HDC hdc, const RECT& rect, bool enabled)
+    void DrawNativePlaceIcon(PlaceOverlayState* state, HDC hdc, const RECT& rect, bool enabled)
     {
-        const COLORREF leafColor = enabled ? RGB(24, 128, 32) : RGB(154, 154, 154);
-        const COLORREF trunkColor = enabled ? RGB(96, 64, 32) : RGB(154, 154, 154);
+        if (!state || !state->sourceToolbar)
+            return;
 
-        HBRUSH leafBrush = CreateSolidBrush(leafColor);
-        HBRUSH trunkBrush = CreateSolidBrush(trunkColor);
-        HPEN outlinePen = CreatePen(PS_SOLID, 1, enabled ? RGB(0, 96, 0) : RGB(132, 132, 132));
+        TBBUTTON button = {};
+        if (!ToolbarCommandButton(state->sourceToolbar, kVanillaPlaceObstaclesCommand, button))
+            return;
 
-        HGDIOBJ oldPen = SelectObject(hdc, outlinePen);
-        HGDIOBJ oldBrush = SelectObject(hdc, leafBrush);
-
-        const int cx = (rect.left + rect.right) / 2;
-        const int top = rect.top + 7;
-        POINT leftTree[] =
+        HIMAGELIST imageList = reinterpret_cast<HIMAGELIST>(SendMessageA(
+            state->sourceToolbar,
+            enabled ? TB_GETIMAGELIST : TB_GETDISABLEDIMAGELIST,
+            0,
+            0));
+        const bool usingDisabledImageList = imageList != nullptr;
+        if (!imageList)
         {
-            { cx - 9, top + 12 },
-            { cx - 4, top + 1 },
-            { cx + 1, top + 12 },
-        };
-        POINT rightTree[] =
+            imageList = reinterpret_cast<HIMAGELIST>(SendMessageA(
+                state->sourceToolbar,
+                TB_GETIMAGELIST,
+                0,
+                0));
+        }
+        if (!imageList)
+            return;
+
+        int iconWidth = 0;
+        int iconHeight = 0;
+        if (!ImageList_GetIconSize(imageList, &iconWidth, &iconHeight) ||
+            iconWidth <= 0 ||
+            iconHeight <= 0)
+            return;
+
+        const int x = rect.left + ((rect.right - rect.left) - iconWidth) / 2;
+        const int y = rect.top + ((rect.bottom - rect.top) - iconHeight) / 2;
+        if (enabled || usingDisabledImageList)
         {
-            { cx - 1, top + 13 },
-            { cx + 5, top },
-            { cx + 11, top + 13 },
-        };
-        Polygon(hdc, leftTree, 3);
-        Polygon(hdc, rightTree, 3);
+            ImageList_DrawEx(
+                imageList,
+                button.iBitmap,
+                hdc,
+                x,
+                y,
+                iconWidth,
+                iconHeight,
+                CLR_NONE,
+                CLR_NONE,
+                ILD_TRANSPARENT);
+            return;
+        }
 
-        SelectObject(hdc, trunkBrush);
-        Rectangle(hdc, cx - 5, top + 12, cx - 2, top + 19);
-        Rectangle(hdc, cx + 4, top + 12, cx + 7, top + 19);
+        HICON icon = ImageList_GetIcon(imageList, button.iBitmap, ILD_TRANSPARENT);
+        if (!icon)
+            return;
 
-        SelectObject(hdc, oldBrush);
-        SelectObject(hdc, oldPen);
-        DeleteObject(outlinePen);
-        DeleteObject(trunkBrush);
-        DeleteObject(leafBrush);
+        DrawStateA(
+            hdc,
+            nullptr,
+            nullptr,
+            reinterpret_cast<LPARAM>(icon),
+            0,
+            x,
+            y,
+            iconWidth,
+            iconHeight,
+            DST_ICON | DSS_DISABLED);
+        DestroyIcon(icon);
     }
 
     void DrawPlaceOverlay(HWND hwnd, HDC hdc)
@@ -761,23 +805,24 @@ namespace
         FillRect(hdc, &rect, background);
         DeleteObject(background);
 
-        UINT buttonState = DFCS_BUTTONPUSH;
-        if (pressed)
-            buttonState |= DFCS_PUSHED;
-        if (!enabled)
-            buttonState |= DFCS_INACTIVE;
-        DrawFrameControl(hdc, &rect, DFC_BUTTON, buttonState);
-
         if (enabled && (hot || pressed))
         {
-            RECT inner = rect;
-            InflateRect(&inner, -3, -3);
-            HBRUSH hotBrush = CreateSolidBrush(pressed ? RGB(186, 226, 255) : RGB(214, 238, 255));
-            FillRect(hdc, &inner, hotBrush);
+            RECT fillRect = rect;
+            InflateRect(&fillRect, -1, -1);
+            HBRUSH hotBrush = CreateSolidBrush(pressed ? RGB(204, 232, 255) : RGB(229, 245, 255));
+            FillRect(hdc, &fillRect, hotBrush);
             DeleteObject(hotBrush);
+
+            HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(190, 232, 255));
+            HGDIOBJ oldPen = SelectObject(hdc, borderPen);
+            HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 3, 3);
+            SelectObject(hdc, oldBrush);
+            SelectObject(hdc, oldPen);
+            DeleteObject(borderPen);
         }
 
-        DrawPlaceOverlayGlyph(hdc, rect, enabled);
+        DrawNativePlaceIcon(state, hdc, rect, enabled);
     }
 
     void DrawCategoryButton(HWND hwnd, HDC hdc)
@@ -807,10 +852,10 @@ namespace
             FillRect(hdc, &fillRect, fillBrush);
             DeleteObject(fillBrush);
 
-            HPEN framePen = CreatePen(PS_SOLID, 1, RGB(148, 213, 255));
+            HPEN framePen = CreatePen(PS_SOLID, 1, RGB(190, 232, 255));
             HGDIOBJ oldPen = SelectObject(hdc, framePen);
             HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-            RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 4, 4);
+            RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 3, 3);
             SelectObject(hdc, oldBrush);
             SelectObject(hdc, oldPen);
             DeleteObject(framePen);
@@ -1047,6 +1092,11 @@ namespace
         case WM_NCDESTROY:
         {
             PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+            if (state && state->tooltip)
+            {
+                DestroyWindow(state->tooltip);
+                state->tooltip = nullptr;
+            }
             SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
             delete state;
             return 0;
@@ -1141,6 +1191,39 @@ namespace
         return hwnd;
     }
 
+    HWND CreatePlaceOverlayTooltip(HWND sourceToolbar, HWND overlay)
+    {
+        HWND tooltip = CreateWindowExA(
+            WS_EX_TOPMOST,
+            TOOLTIPS_CLASSA,
+            nullptr,
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            sourceToolbar,
+            nullptr,
+            s_pluginModule,
+            nullptr);
+        if (!tooltip)
+            return nullptr;
+
+        TOOLINFOA tool = {};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+        tool.hwnd = sourceToolbar;
+        tool.uId = reinterpret_cast<UINT_PTR>(overlay);
+        tool.lpszText = kPlaceOverlayTooltip;
+        if (!SendMessageA(tooltip, TTM_ADDTOOLA, 0, reinterpret_cast<LPARAM>(&tool)))
+        {
+            DestroyWindow(tooltip);
+            return nullptr;
+        }
+
+        return tooltip;
+    }
+
     HWND CreatePlaceOverlay(HWND parent, HWND sourceToolbar, const RECT& rect)
     {
         PlaceOverlayState* state = new (std::nothrow) PlaceOverlayState();
@@ -1167,6 +1250,10 @@ namespace
             delete state;
             return nullptr;
         }
+
+        state->tooltip = CreatePlaceOverlayTooltip(sourceToolbar, hwnd);
+        if (!state->tooltip)
+            LogMessage("Obstacle variants: failed to create Place Obstacles overlay tooltip.");
 
         SetWindowPos(
             hwnd,
