@@ -7,6 +7,7 @@
 #include "obstacle_filter.h"
 
 #include <commctrl.h>
+#include <cstdio>
 #include <cstring>
 #include <new>
 
@@ -20,6 +21,8 @@ namespace
     constexpr int kCategoryButtonsPerRow = 4;
     constexpr int kCategoryButtonSize = 24;
     constexpr int kGridSelectionCollectionCount = 16;
+    constexpr int kObstaclePaintCollectionIndex = 0;
+    constexpr int kObstaclePaintCellState = 2;
     constexpr unsigned int kMaxMapDimensionTiles = 252;
     constexpr DWORD kPollIntervalMs = 50;
     constexpr DWORD kObstacleUpdateCaptureAddress = 0x00484C9A;
@@ -31,6 +34,7 @@ namespace
     {
         HWND parent = nullptr;
         HWND sourceToolbar = nullptr;
+        HWND placeOverlay = nullptr;
         HWND categoryButtons[kCategoryPlaceholderCount] = {};
         DWORD threadId = 0;
         bool layoutApplied = false;
@@ -46,6 +50,15 @@ namespace
         int index = 0;
     };
 
+    struct PlaceOverlayState
+    {
+        HWND parent = nullptr;
+        HWND sourceToolbar = nullptr;
+        bool enabled = false;
+        bool hot = false;
+        bool pressed = false;
+    };
+
     VariantPanel s_panels[8] = {};
     CRITICAL_SECTION s_panelLock = {};
     bool s_panelLockInitialized = false;
@@ -53,11 +66,12 @@ namespace
     HHOOK s_getMessageHook = nullptr;
     DWORD s_getMessageHookThreadId = 0;
     ATOM s_categoryButtonClass = 0;
+    ATOM s_placeOverlayClass = 0;
     BYTE s_updateCaptureOriginal[5] = {};
     volatile DWORD s_lastObstacleUiContext = 0;
     DWORD s_lastLoggedAppliedTerrainMask = 0xFFFFFFFF;
     DWORD s_lastLoggedAppliedNativeEnabled = 0xFFFFFFFF;
-    DWORD s_lastStablePaintedTerrainMask = 0;
+    char s_lastCategoryTraceSummary[4096] = {};
     bool s_categoryChecked[kCategoryPlaceholderCount] =
     {
         true, true, true, true,
@@ -76,6 +90,15 @@ namespace
         unsigned int minY = 0xFFFFFFFF;
         unsigned int maxX = 0;
         unsigned int maxY = 0;
+        DWORD stateCounts[256] = {};
+        DWORD stateMasks[256] = {};
+        DWORD outOfRangeStateCount = 0;
+    };
+
+    struct PaintedTerrainScan
+    {
+        DWORD terrainMask = 0;
+        DWORD paintedCells = 0;
     };
 
     SelectCollectionFn SelectCollection()
@@ -93,6 +116,27 @@ namespace
         return reinterpret_cast<CellStateAtFn>(0x0043C114);
     }
 
+    bool CategoryTraceEnabled()
+    {
+        static int enabled = -1;
+        if (enabled >= 0)
+            return enabled != 0;
+
+        char value[16] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "HOTA_MAPED_PLUGIN_CATEGORY_TRACE",
+            value,
+            sizeof(value));
+        enabled =
+            length > 0 &&
+            length < sizeof(value) &&
+            (_stricmp(value, "1") == 0 ||
+                _stricmp(value, "true") == 0 ||
+                _stricmp(value, "yes") == 0 ||
+                _stricmp(value, "on") == 0);
+        return enabled != 0;
+    }
+
     UINT CategoryLayoutMessage()
     {
         static UINT message = RegisterWindowMessageA("HotaMapEdPlugin.InstallObstacleCategoryButtons");
@@ -107,6 +151,7 @@ namespace
 
     bool AddVariantToolbarButtons(VariantPanel& panel);
     CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd);
+    PlaceOverlayState* PlaceOverlayStateFromWindow(HWND hwnd);
     void RefreshCategoryButtonsForToolbar(HWND toolbar);
 
     void __stdcall CaptureObstacleUiContext(DWORD context)
@@ -156,10 +201,17 @@ namespace
             {
                 for (unsigned int x = 0; x < kMaxMapDimensionTiles; ++x)
                 {
-                    if (CellStateAt()(selection, x, y, static_cast<unsigned char>(collectionIndex)) == 0)
+                    const int cellState =
+                        CellStateAt()(selection, x, y, static_cast<unsigned char>(collectionIndex));
+                    if (cellState == 0)
                         continue;
 
                     ++stats.paintedCells;
+                    if (cellState >= 0 && cellState < 256)
+                        ++stats.stateCounts[cellState];
+                    else
+                        ++stats.outOfRangeStateCount;
+
                     if (x < stats.minX)
                         stats.minX = x;
                     if (y < stats.minY)
@@ -172,7 +224,10 @@ namespace
                     DWORD* tile = TileAt()(terrainCollection, static_cast<int>(x), static_cast<int>(y));
                     if (tile)
                     {
-                        stats.mask |= 1u << ((*tile) & 0x0F);
+                        const DWORD terrainBit = 1u << ((*tile) & 0x0F);
+                        stats.mask |= terrainBit;
+                        if (cellState >= 0 && cellState < 256)
+                            stats.stateMasks[cellState] |= terrainBit;
                         found = true;
                     }
                 }
@@ -186,11 +241,103 @@ namespace
         return found;
     }
 
-    DWORD ComputePaintedTerrainMask()
+    void AppendTraceText(char* buffer, size_t bufferSize, size_t& offset, const char* format, ...)
     {
+        if (offset >= bufferSize)
+            return;
+
+        va_list args;
+        va_start(args, format);
+        const int written =
+            _vsnprintf_s(buffer + offset, bufferSize - offset, _TRUNCATE, format, args);
+        va_end(args);
+
+        if (written < 0)
+            offset = bufferSize;
+        else
+            offset += static_cast<size_t>(written);
+    }
+
+    void TraceGridSelectionStats(DWORD mask, const GridSelectionScanStats* stats)
+    {
+        if (!CategoryTraceEnabled())
+            return;
+
+        char summary[4096] = {};
+        size_t offset = 0;
+        AppendTraceText(summary, sizeof(summary), offset, "mask=0x%08lX", mask);
+
+        DWORD totalCells = 0;
+        for (int index = 0; index < kGridSelectionCollectionCount; ++index)
+            totalCells += stats[index].paintedCells;
+        AppendTraceText(summary, sizeof(summary), offset, " totalCells=%lu", totalCells);
+
+        for (int index = 0; index < kGridSelectionCollectionCount; ++index)
+        {
+            const GridSelectionScanStats& stat = stats[index];
+            if (stat.paintedCells == 0)
+                continue;
+
+            AppendTraceText(
+                summary,
+                sizeof(summary),
+                offset,
+                " c%d cells=%lu mask=0x%08lX bounds=(%u,%u)-(%u,%u) states=",
+                index,
+                stat.paintedCells,
+                stat.mask,
+                stat.minX,
+                stat.minY,
+                stat.maxX,
+                stat.maxY);
+
+            bool firstState = true;
+            int loggedStates = 0;
+            for (int stateValue = 0; stateValue < 256; ++stateValue)
+            {
+                if (stat.stateCounts[stateValue] == 0)
+                    continue;
+
+                AppendTraceText(
+                    summary,
+                    sizeof(summary),
+                    offset,
+                    "%s%d:%lu/0x%08lX",
+                    firstState ? "" : ",",
+                    stateValue,
+                    stat.stateCounts[stateValue],
+                    stat.stateMasks[stateValue]);
+                firstState = false;
+                ++loggedStates;
+                if (loggedStates >= 12)
+                    break;
+            }
+
+            if (stat.outOfRangeStateCount)
+            {
+                AppendTraceText(
+                    summary,
+                    sizeof(summary),
+                    offset,
+                    "%sother:%lu",
+                    firstState ? "" : ",",
+                    stat.outOfRangeStateCount);
+            }
+        }
+
+        if (strcmp(summary, s_lastCategoryTraceSummary) == 0)
+            return;
+
+        strcpy_s(s_lastCategoryTraceSummary, summary);
+        LogFormat("Obstacle variants category trace: %s", summary);
+    }
+
+    PaintedTerrainScan ComputePaintedTerrainScan()
+    {
+        PaintedTerrainScan result = {};
         DWORD context = s_lastObstacleUiContext;
         if (!context)
-            return 0;
+            return result;
 
         DWORD mode = 0;
         DWORD selection = 0;
@@ -204,26 +351,31 @@ namespace
             !mapContext ||
             !SafeReadDword(mapContext + 0x54, selectionManager) ||
             !selectionManager)
-            return 0;
+            return result;
 
         void* terrainCollection = reinterpret_cast<void*>(
             SelectCollection()(reinterpret_cast<void*>(selectionManager), 0));
         if (!terrainCollection)
-            return 0;
+            return result;
 
         GridSelectionScanStats stats[kGridSelectionCollectionCount] = {};
-        DWORD mask = 0;
-        for (int index = 0; index < kGridSelectionCollectionCount; ++index)
+        const bool trace = CategoryTraceEnabled();
+        const int firstCollection = trace ? 0 : kObstaclePaintCollectionIndex;
+        const int endCollection = trace ? kGridSelectionCollectionCount : kObstaclePaintCollectionIndex + 1;
+        for (int index = firstCollection; index < endCollection; ++index)
         {
             AddGridSelectionTerrainMask(
                 reinterpret_cast<void*>(selection),
                 terrainCollection,
                 index,
                 stats[index]);
-            mask |= stats[index].mask;
         }
 
-        return mask;
+        const GridSelectionScanStats& obstacleStats = stats[kObstaclePaintCollectionIndex];
+        result.terrainMask = obstacleStats.stateMasks[kObstaclePaintCellState];
+        result.paintedCells = obstacleStats.stateCounts[kObstaclePaintCellState];
+        TraceGridSelectionStats(result.terrainMask, stats);
+        return result;
     }
 
     bool NativePlaceObstaclesEnabled(HWND toolbar)
@@ -250,29 +402,61 @@ namespace
         InvalidateRect(hwnd, nullptr, FALSE);
     }
 
+    void SetPlaceOverlayEnabled(HWND hwnd, bool enabled)
+    {
+        PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+        if (!state || state->enabled == enabled)
+            return;
+
+        state->enabled = enabled;
+        state->hot = false;
+        state->pressed = false;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+
     struct CategoryEnablement
     {
         bool hasPaintedCells = false;
         DWORD terrainMask = 0;
     };
 
+    bool CategoryAppliesToPaintedTerrain(int index, const CategoryEnablement& enablement)
+    {
+        return !enablement.hasPaintedCells ||
+            (index >= 0 &&
+                index < 32 &&
+                (enablement.terrainMask & (1u << index)) != 0);
+    }
+
+    bool CategoryCanContributeToGeneration(int index, const CategoryEnablement& enablement)
+    {
+        return enablement.hasPaintedCells &&
+            index >= 0 &&
+            index < 32 &&
+            (enablement.terrainMask & (1u << index)) != 0 &&
+            index < kCategoryPlaceholderCount &&
+            s_categoryChecked[index];
+    }
+
+    bool AnyCheckedApplicableCategory(const CategoryEnablement& enablement)
+    {
+        for (int index = 0; index < kCategoryPlaceholderCount; ++index)
+        {
+            if (CategoryCanContributeToGeneration(index, enablement))
+                return true;
+        }
+        return false;
+    }
+
     CategoryEnablement GetCategoryEnablement(HWND toolbar)
     {
         CategoryEnablement enablement = {};
-        const DWORD rawTerrainMask = ComputePaintedTerrainMask();
+        const PaintedTerrainScan scan = ComputePaintedTerrainScan();
+        const DWORD rawTerrainMask = scan.terrainMask;
         const bool nativePlaceEnabled = NativePlaceObstaclesEnabled(toolbar);
-        if (nativePlaceEnabled)
-        {
-            if (rawTerrainMask != 0)
-                s_lastStablePaintedTerrainMask = rawTerrainMask;
-        }
-        else
-        {
-            s_lastStablePaintedTerrainMask = 0;
-        }
 
-        enablement.terrainMask = nativePlaceEnabled ? s_lastStablePaintedTerrainMask : 0;
-        enablement.hasPaintedCells = enablement.terrainMask != 0;
+        enablement.terrainMask = rawTerrainMask;
+        enablement.hasPaintedCells = scan.paintedCells != 0;
 
         const DWORD paintedValue = enablement.hasPaintedCells ? 1u : 0u;
         if (enablement.terrainMask != s_lastLoggedAppliedTerrainMask ||
@@ -299,9 +483,25 @@ namespace
 
         SetCategoryButtonEnabled(
             hwnd,
-            !enablement.hasPaintedCells ||
-            (state->index < 32 &&
-                (enablement.terrainMask & (1u << state->index)) != 0));
+            CategoryAppliesToPaintedTerrain(state->index, enablement));
+    }
+
+    void RefreshPlaceOverlay(VariantPanel& panel, const CategoryEnablement& enablement)
+    {
+        if (!panel.placeOverlay)
+            return;
+
+        SetWindowPos(
+            panel.placeOverlay,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetPlaceOverlayEnabled(
+            panel.placeOverlay,
+            AnyCheckedApplicableCategory(enablement));
     }
 
     void RefreshCategoryButtons(VariantPanel& panel)
@@ -312,6 +512,7 @@ namespace
         const CategoryEnablement enablement = GetCategoryEnablement(panel.sourceToolbar);
         for (HWND button : panel.categoryButtons)
             RefreshCategoryButton(button, enablement);
+        RefreshPlaceOverlay(panel, enablement);
     }
 
     bool EnvValueEnabled(const char* value)
@@ -376,6 +577,18 @@ namespace
         }
 
         return -1;
+    }
+
+    bool ToolbarCommandRect(HWND toolbar, UINT commandId, RECT& rect)
+    {
+        const int index = ToolbarCommandIndex(toolbar, commandId);
+        if (index < 0)
+            return false;
+
+        if (!SendMessageA(toolbar, TB_GETITEMRECT, static_cast<WPARAM>(index), reinterpret_cast<LPARAM>(&rect)))
+            return false;
+
+        return rect.right > rect.left && rect.bottom > rect.top;
     }
 
     bool RectInParent(HWND parent, HWND child, RECT& rect)
@@ -487,6 +700,84 @@ namespace
     CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd)
     {
         return reinterpret_cast<CategoryButtonState*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+    }
+
+    PlaceOverlayState* PlaceOverlayStateFromWindow(HWND hwnd)
+    {
+        return reinterpret_cast<PlaceOverlayState*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+    }
+
+    void DrawPlaceOverlayGlyph(HDC hdc, const RECT& rect, bool enabled)
+    {
+        const COLORREF leafColor = enabled ? RGB(24, 128, 32) : RGB(154, 154, 154);
+        const COLORREF trunkColor = enabled ? RGB(96, 64, 32) : RGB(154, 154, 154);
+
+        HBRUSH leafBrush = CreateSolidBrush(leafColor);
+        HBRUSH trunkBrush = CreateSolidBrush(trunkColor);
+        HPEN outlinePen = CreatePen(PS_SOLID, 1, enabled ? RGB(0, 96, 0) : RGB(132, 132, 132));
+
+        HGDIOBJ oldPen = SelectObject(hdc, outlinePen);
+        HGDIOBJ oldBrush = SelectObject(hdc, leafBrush);
+
+        const int cx = (rect.left + rect.right) / 2;
+        const int top = rect.top + 7;
+        POINT leftTree[] =
+        {
+            { cx - 9, top + 12 },
+            { cx - 4, top + 1 },
+            { cx + 1, top + 12 },
+        };
+        POINT rightTree[] =
+        {
+            { cx - 1, top + 13 },
+            { cx + 5, top },
+            { cx + 11, top + 13 },
+        };
+        Polygon(hdc, leftTree, 3);
+        Polygon(hdc, rightTree, 3);
+
+        SelectObject(hdc, trunkBrush);
+        Rectangle(hdc, cx - 5, top + 12, cx - 2, top + 19);
+        Rectangle(hdc, cx + 4, top + 12, cx + 7, top + 19);
+
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(outlinePen);
+        DeleteObject(trunkBrush);
+        DeleteObject(leafBrush);
+    }
+
+    void DrawPlaceOverlay(HWND hwnd, HDC hdc)
+    {
+        RECT rect = {};
+        GetClientRect(hwnd, &rect);
+
+        PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+        const bool enabled = state && state->enabled;
+        const bool hot = enabled && state->hot;
+        const bool pressed = enabled && state->pressed;
+
+        HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
+        FillRect(hdc, &rect, background);
+        DeleteObject(background);
+
+        UINT buttonState = DFCS_BUTTONPUSH;
+        if (pressed)
+            buttonState |= DFCS_PUSHED;
+        if (!enabled)
+            buttonState |= DFCS_INACTIVE;
+        DrawFrameControl(hdc, &rect, DFC_BUTTON, buttonState);
+
+        if (enabled && (hot || pressed))
+        {
+            RECT inner = rect;
+            InflateRect(&inner, -3, -3);
+            HBRUSH hotBrush = CreateSolidBrush(pressed ? RGB(186, 226, 255) : RGB(214, 238, 255));
+            FillRect(hdc, &inner, hotBrush);
+            DeleteObject(hotBrush);
+        }
+
+        DrawPlaceOverlayGlyph(hdc, rect, enabled);
     }
 
     void DrawCategoryButton(HWND hwnd, HDC hdc)
@@ -628,6 +919,7 @@ namespace
                     state->checked = !state->checked;
                     if (state->index >= 0 && state->index < kCategoryPlaceholderCount)
                         s_categoryChecked[state->index] = state->checked;
+                    RefreshCategoryButtonsForToolbar(state->sourceToolbar);
                 }
                 state->pressed = false;
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -648,6 +940,113 @@ namespace
         {
             KillTimer(hwnd, 1);
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
+            delete state;
+            return 0;
+        }
+        }
+
+        return DefWindowProcA(hwnd, message, wParam, lParam);
+    }
+
+    LRESULT CALLBACK PlaceOverlayWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        switch (message)
+        {
+        case WM_NCCREATE:
+        {
+            CREATESTRUCTA* create = reinterpret_cast<CREATESTRUCTA*>(lParam);
+            SetWindowLongPtrA(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+            return TRUE;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT:
+        {
+            PAINTSTRUCT ps = {};
+            HDC hdc = BeginPaint(hwnd, &ps);
+            DrawPlaceOverlay(hwnd, hdc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_MOUSEMOVE:
+        {
+            PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+            if (state && state->enabled && !state->hot)
+            {
+                state->hot = true;
+                TRACKMOUSEEVENT track = {};
+                track.cbSize = sizeof(track);
+                track.dwFlags = TME_LEAVE;
+                track.hwndTrack = hwnd;
+                TrackMouseEvent(&track);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+        {
+            PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+            if (state)
+            {
+                state->hot = false;
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_LBUTTONDOWN:
+        {
+            PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+            if (state && state->enabled)
+            {
+                state->pressed = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_LBUTTONUP:
+        {
+            PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+            if (state && state->enabled)
+            {
+                POINT point =
+                {
+                    static_cast<SHORT>(LOWORD(lParam)),
+                    static_cast<SHORT>(HIWORD(lParam)),
+                };
+                RECT rect = {};
+                GetClientRect(hwnd, &rect);
+                const bool shouldRun = state->pressed && PtInRect(&rect, point);
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+                if (shouldRun)
+                {
+                    SendMessageA(
+                        state->parent,
+                        WM_COMMAND,
+                        MAKEWPARAM(kVanillaPlaceObstaclesCommand, 0),
+                        reinterpret_cast<LPARAM>(state->sourceToolbar));
+                    RefreshCategoryButtonsForToolbar(state->sourceToolbar);
+                }
+            }
+            return 0;
+        }
+        case WM_CANCELMODE:
+        {
+            PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
+            if (state)
+            {
+                state->pressed = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_NCDESTROY:
+        {
+            PlaceOverlayState* state = PlaceOverlayStateFromWindow(hwnd);
             SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
             delete state;
             return 0;
@@ -678,6 +1077,30 @@ namespace
 
         if (!s_categoryButtonClass)
             s_categoryButtonClass = 1;
+        return true;
+    }
+
+    bool EnsurePlaceOverlayClass()
+    {
+        if (s_placeOverlayClass)
+            return true;
+
+        WNDCLASSEXA windowClass = {};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.lpfnWndProc = PlaceOverlayWndProc;
+        windowClass.hInstance = s_pluginModule;
+        windowClass.hCursor = LoadCursorA(nullptr, IDC_ARROW);
+        windowClass.lpszClassName = "HotaMapEdPluginPlaceOverlay";
+
+        s_placeOverlayClass = RegisterClassExA(&windowClass);
+        if (!s_placeOverlayClass && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        {
+            LogFormat("Obstacle variants: failed to register place overlay class, gle=%lu.", GetLastError());
+            return false;
+        }
+
+        if (!s_placeOverlayClass)
+            s_placeOverlayClass = 1;
         return true;
     }
 
@@ -713,6 +1136,46 @@ namespace
         SetWindowPos(hwnd, HWND_TOP, x, y, 32, 32, SWP_SHOWWINDOW | SWP_NOACTIVATE);
         if (index == 0)
             SetTimer(hwnd, 1, kCategoryRefreshTimerMs, nullptr);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        UpdateWindow(hwnd);
+        return hwnd;
+    }
+
+    HWND CreatePlaceOverlay(HWND parent, HWND sourceToolbar, const RECT& rect)
+    {
+        PlaceOverlayState* state = new (std::nothrow) PlaceOverlayState();
+        if (!state)
+            return nullptr;
+        state->parent = parent;
+        state->sourceToolbar = sourceToolbar;
+
+        HWND hwnd = CreateWindowExA(
+            0,
+            "HotaMapEdPluginPlaceOverlay",
+            nullptr,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            sourceToolbar,
+            nullptr,
+            s_pluginModule,
+            state);
+        if (!hwnd)
+        {
+            delete state;
+            return nullptr;
+        }
+
+        SetWindowPos(
+            hwnd,
+            HWND_TOP,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            SWP_SHOWWINDOW | SWP_NOACTIVATE);
         InvalidateRect(hwnd, nullptr, FALSE);
         UpdateWindow(hwnd);
         return hwnd;
@@ -754,13 +1217,53 @@ namespace
         LeaveCriticalSection(&s_panelLock);
     }
 
-    bool MessageCanAffectObstacleSelection(UINT message)
+    bool ShouldBlockNativePlaceObstaclesCommand()
     {
-        return message == WM_LBUTTONDOWN ||
-            message == WM_LBUTTONUP ||
-            message == WM_MOUSEMOVE ||
-            message == WM_KEYDOWN ||
-            message == WM_KEYUP;
+        if (!s_panelLockInitialized)
+            return false;
+
+        VariantPanel panels[8] = {};
+        int panelCount = 0;
+        EnterCriticalSection(&s_panelLock);
+        for (VariantPanel& panel : s_panels)
+        {
+            if (panel.parent && panel.sourceToolbar && panel.layoutApplied && panelCount < 8)
+                panels[panelCount++] = panel;
+        }
+        LeaveCriticalSection(&s_panelLock);
+
+        bool sawVisibleObstaclePanel = false;
+        bool anyPanelCanPlace = false;
+        for (int index = 0; index < panelCount; ++index)
+        {
+            VariantPanel& panel = panels[index];
+            if (!IsWindow(panel.parent) ||
+                !IsWindow(panel.sourceToolbar) ||
+                !IsWindowVisible(panel.parent))
+                continue;
+
+            sawVisibleObstaclePanel = true;
+            const CategoryEnablement enablement = GetCategoryEnablement(panel.sourceToolbar);
+            if (AnyCheckedApplicableCategory(enablement))
+            {
+                anyPanelCanPlace = true;
+                break;
+            }
+        }
+
+        return sawVisibleObstaclePanel && !anyPanelCanPlace;
+    }
+
+    bool MessageCanAffectObstacleSelection(const MSG* message)
+    {
+        if (!message)
+            return false;
+
+        return message->message == WM_LBUTTONDOWN ||
+            message->message == WM_LBUTTONUP ||
+            (message->message == WM_MOUSEMOVE && (message->wParam & MK_LBUTTON) != 0) ||
+            message->message == WM_KEYDOWN ||
+            message->message == WM_KEYUP;
     }
 
     void PostCategoryRefreshMessages()
@@ -879,6 +1382,17 @@ namespace
                 RefreshAllCategoryButtons();
             }
             else if (message &&
+                message->message == WM_COMMAND &&
+                LOWORD(message->wParam) == kVanillaPlaceObstaclesCommand &&
+                ShouldBlockNativePlaceObstaclesCommand())
+            {
+                message->message = WM_NULL;
+                message->wParam = 0;
+                message->lParam = 0;
+                LogMessage("Obstacle variants: blocked native Place Obstacles command because the effective category pool is empty.");
+                PostCategoryRefreshMessages();
+            }
+            else if (message &&
                 (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
             {
                 const UINT originalMessage = message->message;
@@ -909,7 +1423,7 @@ namespace
 
                 PostCategoryRefreshMessages();
             }
-            else if (message && MessageCanAffectObstacleSelection(message->message))
+            else if (MessageCanAffectObstacleSelection(message))
             {
                 PostCategoryRefreshMessages();
             }
@@ -932,6 +1446,13 @@ namespace
         if (!RectInParent(parent, toolbar, placeRect))
             return false;
 
+        RECT placeButtonRect = {};
+        if (!ToolbarCommandRect(toolbar, kVanillaPlaceObstaclesCommand, placeButtonRect))
+        {
+            LogMessage("Obstacle variants: could not locate native Place Obstacles button for overlay.");
+            return false;
+        }
+
         RECT brushLabelRect = {};
         RECT brushToolbarRect = {};
         if (!FindBrushSection(parent, placeRect.top, brushLabelRect, brushToolbarRect))
@@ -949,8 +1470,16 @@ namespace
 
         const int x = brushToolbarRect.left;
         const int firstRowY = brushLabelRect.top;
-        if (!EnsureCategoryButtonClass())
+        if (!EnsureCategoryButtonClass() || !EnsurePlaceOverlayClass())
         {
+            MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
+            return false;
+        }
+
+        panel.placeOverlay = CreatePlaceOverlay(parent, toolbar, placeButtonRect);
+        if (!panel.placeOverlay)
+        {
+            LogMessage("Obstacle variants: failed to create Place Obstacles overlay.");
             MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
             return false;
         }
@@ -973,6 +1502,11 @@ namespace
         if (!createdAll)
         {
             LogMessage("Obstacle variants: failed to create category placeholder buttons.");
+            if (panel.placeOverlay)
+            {
+                DestroyWindow(panel.placeOverlay);
+                panel.placeOverlay = nullptr;
+            }
             for (HWND& button : panel.categoryButtons)
             {
                 if (button)
@@ -994,8 +1528,9 @@ namespace
             UpdateWindow(button);
         }
         LogFormat(
-            "Obstacle variants: created category placeholder buttons parent=%p first=%p x=%ld y=%ld movedBrushBy=%ld",
+            "Obstacle variants: created category placeholder buttons parent=%p placeOverlay=%p first=%p x=%ld y=%ld movedBrushBy=%ld",
             parent,
+            panel.placeOverlay,
             panel.categoryButtons[0],
             x,
             firstRowY,

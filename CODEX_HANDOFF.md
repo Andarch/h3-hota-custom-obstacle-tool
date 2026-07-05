@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-07-01
+Last updated: 2026-07-05
 
 ## Purpose
 
@@ -978,8 +978,10 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
 - Category-button placeholder UI was started after the Thick/Thin prototype:
   eight 32x32 child-window buttons are placed below the native Place Obstacles
   button in two rows of four, and the Brush section is moved down to make room.
-  The placeholders are nonfunctional except for local toggle/highlight state.
-  They are test controls for the planned category-toggle behavior.
+  They are currently test controls for the planned category-toggle behavior:
+  the buttons preserve checked state, gray out when not applicable to the
+  current painted terrain mask, and are used by the plugin-owned Place
+  Obstacles overlay to decide whether generation is allowed.
 - Terrain-specific category-button enablement now hooks the native update-UI
   handler at `h3hota_maped.exe:0x00484C9A` only to capture the live obstacle UI
   context from `esi`. The hook preserves the original `mov eax, [esi+64h]` /
@@ -1007,8 +1009,16 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
     `CellStateAt` reports a painted cell;
   - `0x0042B23E` returns the map terrain tile for `(x, y)`, and the terrain ID
     is `tile & 0x0F`.
-- Category-button enablement currently uses the native Place Obstacles toolbar
-  state only to decide whether the scanned terrain mask is meaningful. Before
+- Runtime trace on 2026-07-05 verified that the active obstacle-paint layer for
+  category enablement is collection `0`, cell state `2`. Earlier broad scans
+  that OR'ed all collections were noisy because collections `7`/`8` can cover
+  the full map, and collection `0` can contain transient non-paint states. The
+  production path now scans only collection `0` and uses only state `2`; setting
+  `HOTA_MAPED_PLUGIN_CATEGORY_TRACE=1` temporarily logs all `0..15` collection
+  counts, terrain masks, bounds, and state masks for diagnostics.
+- Category-button enablement no longer uses the native Place Obstacles toolbar
+  state to decide whether the scanned terrain mask is meaningful. It derives
+  "paint exists" directly from collection `0` / state `2` cell count. Before
   painting, or after generation/clear/undo leaves no active obstacle paint
   area, all placeholder category buttons remain enabled so the user can set
   category intent before painting. While an active painted area exists, only
@@ -1017,10 +1027,16 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   outside the child windows. This preserves user customization when buttons
   temporarily gray out or the editor recreates the side panel/buttons after
   generating obstacles or switching tools.
-- While the native Place Obstacles command remains enabled, the UI keeps the
-  last nonzero scanned terrain mask. This avoids flicker from transient empty
-  scan results during paint/undo/refresh. When the native command disables, the
-  stable mask is cleared and all placeholder buttons become enabled again.
+- A plugin-owned overlay now sits over the native Place Obstacles toolbar
+  button. The native button remains underneath so editor internals stay
+  undisturbed, but user clicks hit the overlay. The overlay is a child of the
+  native toolbar and is positioned from the native command `32927` item
+  rectangle, which keeps it visible over toolbar repaints.
+- The Place overlay is enabled only when a painted area exists and at least one
+  terrain-applicable category button is checked. If the effective category pool
+  is empty, the overlay draws disabled and click does nothing. The UI-thread
+  message hook also blocks native command `32927` in that empty-pool state, so
+  `Shift+O`/accelerators cannot bypass the overlay gate.
 - Runtime validation through Computer Use on 2026-06-23:
   - category buttons are gray before obstacle painting;
   - painting only Dirt enables only placeholder button `0`;
@@ -1047,6 +1063,15 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   all placeholder category buttons are enabled before painting; painting gates
   them by terrain; user-checked state survives generating obstacles, undo,
   clearing, and returning to the no-painted-area state.
+- Manual validation on 2026-07-05 confirmed the stabilized trace path and Place
+  overlay:
+  - one-tile Dirt/Sand/Grass/Snow marks produced applied terrain mask
+    `0x0000000F` from collection `0` / state `2`;
+  - one-tile marks across terrain IDs `0..7` reached `0x000000FF` and then
+    returned to `0x00000000` after clear/undo;
+  - unchecking the only applicable terrain category disabled the Place overlay
+    and clicking it generated nothing;
+  - re-checking that category enabled the overlay and generation worked.
 
 ### Current Obstacle Workbook Contract
 
