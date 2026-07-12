@@ -36,6 +36,7 @@ namespace
         HWND parent = nullptr;
         HWND sourceToolbar = nullptr;
         HWND placeOverlay = nullptr;
+        HWND categoryLabel = nullptr;
         HWND categoryButtons[kCategoryPlaceholderCount] = {};
         DWORD threadId = 0;
         bool layoutApplied = false;
@@ -632,7 +633,12 @@ namespace
         return strcmp(text, expected) == 0;
     }
 
-    bool FindBrushSection(HWND parent, int minTop, RECT& brushLabelRect, RECT& brushToolbarRect)
+    bool FindBrushSection(
+        HWND parent,
+        int minTop,
+        HWND& brushLabel,
+        RECT& brushLabelRect,
+        RECT& brushToolbarRect)
     {
         HWND bestLabel = nullptr;
         RECT bestLabelRect = {};
@@ -682,34 +688,10 @@ namespace
         if (!bestToolbar)
             return false;
 
+        brushLabel = bestLabel;
         brushLabelRect = bestLabelRect;
         brushToolbarRect = bestToolbarRect;
         return true;
-    }
-
-    void MoveVisibleBrushSectionDown(HWND parent, int startTop, int delta)
-    {
-        for (HWND child = FirstDirectChild(parent); child; child = NextSibling(child))
-        {
-            if (!IsWindowVisible(child))
-                continue;
-
-            RECT rect = {};
-            if (!RectInParent(parent, child, rect))
-                continue;
-
-            if (rect.top < startTop)
-                continue;
-
-            SetWindowPos(
-                child,
-                nullptr,
-                rect.left,
-                rect.top + delta,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
-                SWP_NOZORDER | SWP_NOACTIVATE);
-        }
     }
 
     CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd)
@@ -1540,9 +1522,10 @@ namespace
             return false;
         }
 
+        HWND brushLabel = nullptr;
         RECT brushLabelRect = {};
         RECT brushToolbarRect = {};
-        if (!FindBrushSection(parent, placeRect.top, brushLabelRect, brushToolbarRect))
+        if (!FindBrushSection(parent, placeRect.top, brushLabel, brushLabelRect, brushToolbarRect))
         {
             LogMessage("Obstacle variants: could not find visible Brush section for category buttons.");
             return false;
@@ -1551,29 +1534,50 @@ namespace
         constexpr int rowHeight = 32;
         constexpr int rowGap = 4;
         constexpr int sectionGap = 10;
-        const int totalCategoryHeight = rowHeight * 2 + rowGap + sectionGap;
-
-        MoveVisibleBrushSectionDown(parent, brushLabelRect.top, totalCategoryHeight);
+        constexpr int labelToButtonsGap = 4;
 
         const int x = brushToolbarRect.left;
-        const int firstRowY = brushLabelRect.top;
+        const int labelY = brushToolbarRect.bottom + sectionGap;
+        const int labelHeight = brushLabelRect.bottom - brushLabelRect.top;
+        const int labelWidth = brushToolbarRect.right - brushLabelRect.left;
+        const int firstRowY = labelY + labelHeight + labelToButtonsGap;
         if (!EnsureCategoryButtonClass() || !EnsurePlaceOverlayClass())
-        {
-            MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
             return false;
-        }
 
         panel.placeOverlay = CreatePlaceOverlay(parent, toolbar, placeButtonRect);
         if (!panel.placeOverlay)
         {
             LogMessage("Obstacle variants: failed to create Place Obstacles overlay.");
-            MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
             return false;
         }
 
-        bool createdAll = true;
+        panel.categoryLabel = CreateWindowExA(
+            0,
+            "STATIC",
+            "Obstacle Types",
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | SS_LEFT | SS_NOPREFIX,
+            brushLabelRect.left,
+            labelY,
+            labelWidth,
+            labelHeight,
+            parent,
+            nullptr,
+            s_pluginModule,
+            nullptr);
+        if (panel.categoryLabel)
+        {
+            HFONT brushFont = reinterpret_cast<HFONT>(
+                SendMessageA(brushLabel, WM_GETFONT, 0, 0));
+            if (brushFont)
+                SendMessageA(panel.categoryLabel, WM_SETFONT, reinterpret_cast<WPARAM>(brushFont), TRUE);
+        }
+
+        bool createdAll = panel.categoryLabel != nullptr;
         for (int i = 0; i < kCategoryPlaceholderCount; ++i)
         {
+            if (!createdAll)
+                break;
+
             const int row = i / kCategoryButtonsPerRow;
             const int col = i % kCategoryButtonsPerRow;
             const int buttonX = x + col * rowHeight;
@@ -1594,6 +1598,11 @@ namespace
                 DestroyWindow(panel.placeOverlay);
                 panel.placeOverlay = nullptr;
             }
+            if (panel.categoryLabel)
+            {
+                DestroyWindow(panel.categoryLabel);
+                panel.categoryLabel = nullptr;
+            }
             for (HWND& button : panel.categoryButtons)
             {
                 if (button)
@@ -1602,7 +1611,6 @@ namespace
                     button = nullptr;
                 }
             }
-            MoveVisibleBrushSectionDown(parent, brushLabelRect.top + totalCategoryHeight, -totalCategoryHeight);
             return false;
         }
 
@@ -1615,13 +1623,13 @@ namespace
             UpdateWindow(button);
         }
         LogFormat(
-            "Obstacle variants: created category placeholder buttons parent=%p placeOverlay=%p first=%p x=%ld y=%ld movedBrushBy=%ld",
+            "Obstacle variants: created category placeholder buttons below Brush parent=%p placeOverlay=%p label=%p first=%p x=%d y=%d",
             parent,
             panel.placeOverlay,
+            panel.categoryLabel,
             panel.categoryButtons[0],
             x,
-            firstRowY,
-            totalCategoryHeight);
+            firstRowY);
         return true;
     }
 

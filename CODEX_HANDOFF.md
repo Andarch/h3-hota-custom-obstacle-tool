@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-07-05
+Last updated: 2026-07-12
 
 ## Purpose
 
@@ -976,12 +976,14 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   - Thick/Thin generation works;
   - keyboard shortcuts work before and after clicking the new buttons.
 - Category-button placeholder UI was started after the Thick/Thin prototype:
-  eight 32x32 child-window buttons are placed below the native Place Obstacles
-  button in two rows of four, and the Brush section is moved down to make room.
-  They are currently test controls for the planned category-toggle behavior:
-  the buttons preserve checked state, gray out when not applicable to the
-  current painted terrain mask, and are used by the plugin-owned Place
-  Obstacles overlay to decide whether generation is allowed.
+  eight 32x32 child-window buttons are placed below the native Brush section in
+  two rows of four. An `Obstacle Types` label above the rows inherits the native
+  Brush label's font. Native Brush controls remain at their original positions.
+  The placeholders are currently test controls for the planned category-toggle
+  behavior: the buttons preserve checked state, gray out when not applicable to
+  the current painted terrain mask, and are used by the plugin-owned Place
+  Obstacles overlay to decide whether generation is allowed. The user visually
+  accepted this below-Brush layout on 2026-07-12.
 - Terrain-specific category-button enablement now hooks the native update-UI
   handler at `h3hota_maped.exe:0x00484C9A` only to capture the live obstacle UI
   context from `esi`. The hook preserves the original `mov eax, [esi+64h]` /
