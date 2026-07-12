@@ -1,0 +1,30 @@
+# Obstacle Type Icons
+
+Store user-created obstacle category icons in these folders:
+
+- `enabled/<button_name>.png`
+- `disabled/<button_name>.png`
+
+Use the same lowercase snake-case filename for both states. For example:
+
+- `enabled/01_dirt_mountains.png`
+- `disabled/01_dirt_mountains.png`
+
+The two-digit prefix maps the icon to its one-based button number.
+
+Icon requirements:
+
+- 24 x 24 pixels;
+- 32-bit RGBA PNG;
+- transparent background with straight alpha;
+- no button border, hover fill, or selected-state background.
+
+HotA reference images remain under `scratch/hota_me_resources` and must not be
+copied here or committed.
+
+Regenerate the embedded icon table after adding or changing icons:
+
+```powershell
+& 'C:\Users\Andy\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
+  tools\generate_obstacle_icons.py
+```

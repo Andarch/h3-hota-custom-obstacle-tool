@@ -5,6 +5,7 @@
 #include "hook.h"
 #include "obstacle_classification.h"
 #include "obstacle_filter.h"
+#include "obstacle_icon_data.h"
 
 #include <commctrl.h>
 #include <cstdio>
@@ -18,12 +19,13 @@ namespace
     constexpr UINT kPlaceThickObstaclesCommand = 0x7001;
     constexpr UINT kPlaceThinObstaclesCommand = 0x7002;
     constexpr int kCategoryPlaceholderCount = 8;
-    constexpr int kCategoryButtonsPerRow = 4;
-    constexpr int kCategoryButtonSize = 24;
+    constexpr bool kUseLargeCategoryButtonPreview = false;
+    constexpr int kCategoryButtonsPerRow = kUseLargeCategoryButtonPreview ? 3 : 4;
+    constexpr int kCategoryButtonExtent = kUseLargeCategoryButtonPreview ? 40 : 32;
+    constexpr int kCategoryGlyphExtent = kUseLargeCategoryButtonPreview ? 32 : 24;
     constexpr int kGridSelectionCollectionCount = 16;
     constexpr int kObstaclePaintCollectionIndex = 0;
     constexpr int kObstaclePaintCellState = 2;
-    constexpr unsigned int kMaxMapDimensionTiles = 252;
     constexpr DWORD kPollIntervalMs = 50;
     constexpr DWORD kObstacleUpdateCaptureAddress = 0x00484C9A;
     constexpr BYTE kObstacleUpdateCaptureExpected[] = { 0x8B, 0x46, 0x64, 0x85, 0xC0 };
@@ -74,6 +76,8 @@ namespace
     volatile DWORD s_lastObstacleUiContext = 0;
     DWORD s_lastLoggedAppliedTerrainMask = 0xFFFFFFFF;
     DWORD s_lastLoggedAppliedNativeEnabled = 0xFFFFFFFF;
+    DWORD s_lastLoggedMapWidth = 0;
+    DWORD s_lastLoggedMapHeight = 0;
     char s_lastCategoryTraceSummary[4096] = {};
     bool s_categoryChecked[kCategoryPlaceholderCount] =
     {
@@ -194,15 +198,17 @@ namespace
         void* selection,
         void* terrainCollection,
         int collectionIndex,
+        unsigned int mapWidth,
+        unsigned int mapHeight,
         GridSelectionScanStats& stats)
     {
         bool found = false;
 
         __try
         {
-            for (unsigned int y = 0; y < kMaxMapDimensionTiles; ++y)
+            for (unsigned int y = 0; y < mapHeight; ++y)
             {
-                for (unsigned int x = 0; x < kMaxMapDimensionTiles; ++x)
+                for (unsigned int x = 0; x < mapWidth; ++x)
                 {
                     const int cellState =
                         CellStateAt()(selection, x, y, static_cast<unsigned char>(collectionIndex));
@@ -227,12 +233,15 @@ namespace
                     DWORD* tile = TileAt()(terrainCollection, static_cast<int>(x), static_cast<int>(y));
                     if (tile)
                     {
-                        const DWORD terrainBit = 1u << ((*tile) & 0x0F);
+                        const DWORD tileValue = *tile;
+                        const DWORD terrainBit = 1u << (tileValue & 0x0F);
                         stats.mask |= terrainBit;
                         if (cellState >= 0 && cellState < 256)
                             stats.stateMasks[cellState] |= terrainBit;
+
                         found = true;
                     }
+
                 }
             }
         }
@@ -335,6 +344,48 @@ namespace
         LogFormat("Obstacle variants category trace: %s", summary);
     }
 
+    bool IsKnownMapDimension(DWORD value)
+    {
+        return value == 36 ||
+            value == 72 ||
+            value == 108 ||
+            value == 144 ||
+            value == 180 ||
+            value == 216 ||
+            value == 252;
+    }
+
+    bool TryReadMapDimensions(DWORD context, unsigned int& width, unsigned int& height)
+    {
+        width = 0;
+        height = 0;
+
+        DWORD mapSizeHolder = 0;
+        DWORD rawWidth = 0;
+        DWORD rawHeight = 0;
+        if (!SafeReadDword(context + 0x54, mapSizeHolder) ||
+            !mapSizeHolder ||
+            !SafeReadDword(mapSizeHolder + 0x54, rawWidth) ||
+            !SafeReadDword(mapSizeHolder + 0x58, rawHeight) ||
+            !IsKnownMapDimension(rawWidth) ||
+            !IsKnownMapDimension(rawHeight))
+            return false;
+
+        width = rawWidth;
+        height = rawHeight;
+        if (rawWidth != s_lastLoggedMapWidth || rawHeight != s_lastLoggedMapHeight)
+        {
+            s_lastLoggedMapWidth = rawWidth;
+            s_lastLoggedMapHeight = rawHeight;
+            LogFormat(
+                "Obstacle variants category: map scan dimensions=%lux%lu holder=%08lX.",
+                rawWidth,
+                rawHeight,
+                mapSizeHolder);
+        }
+        return true;
+    }
+
     PaintedTerrainScan ComputePaintedTerrainScan()
     {
         PaintedTerrainScan result = {};
@@ -346,6 +397,8 @@ namespace
         DWORD selection = 0;
         DWORD mapContext = 0;
         DWORD selectionManager = 0;
+        unsigned int mapWidth = 0;
+        unsigned int mapHeight = 0;
         if (!SafeReadDword(context + 0x98, mode) ||
             mode != 6 ||
             !SafeReadDword(context + 0x64, selection) ||
@@ -353,7 +406,8 @@ namespace
             !SafeReadDword(context + 0x3C, mapContext) ||
             !mapContext ||
             !SafeReadDword(mapContext + 0x54, selectionManager) ||
-            !selectionManager)
+            !selectionManager ||
+            !TryReadMapDimensions(context, mapWidth, mapHeight))
             return result;
 
         void* terrainCollection = reinterpret_cast<void*>(
@@ -371,6 +425,8 @@ namespace
                 reinterpret_cast<void*>(selection),
                 terrainCollection,
                 index,
+                mapWidth,
+                mapHeight,
                 stats[index]);
         }
 
@@ -807,6 +863,59 @@ namespace
         DrawNativePlaceIcon(state, hdc, rect, enabled);
     }
 
+    bool DrawObstacleIcon(
+        HDC hdc,
+        const RECT& targetRect,
+        const ObstacleIconData* icon,
+        COLORREF background)
+    {
+        constexpr int kIconExtent = 24;
+        if (!icon || !icon->rgba || icon->width != kIconExtent || icon->height != kIconExtent)
+            return false;
+
+        BYTE pixels[kIconExtent * kIconExtent * 4] = {};
+        const unsigned int backgroundRed = GetRValue(background);
+        const unsigned int backgroundGreen = GetGValue(background);
+        const unsigned int backgroundBlue = GetBValue(background);
+
+        for (int pixel = 0; pixel < kIconExtent * kIconExtent; ++pixel)
+        {
+            const unsigned int sourceOffset = pixel * 4;
+            const unsigned int alpha = icon->rgba[sourceOffset + 3];
+            const unsigned int inverseAlpha = 255 - alpha;
+            pixels[sourceOffset + 0] = static_cast<BYTE>(
+                (icon->rgba[sourceOffset + 2] * alpha + backgroundBlue * inverseAlpha + 127) / 255);
+            pixels[sourceOffset + 1] = static_cast<BYTE>(
+                (icon->rgba[sourceOffset + 1] * alpha + backgroundGreen * inverseAlpha + 127) / 255);
+            pixels[sourceOffset + 2] = static_cast<BYTE>(
+                (icon->rgba[sourceOffset + 0] * alpha + backgroundRed * inverseAlpha + 127) / 255);
+        }
+
+        BITMAPINFO bitmapInfo = {};
+        bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
+        bitmapInfo.bmiHeader.biWidth = kIconExtent;
+        bitmapInfo.bmiHeader.biHeight = -kIconExtent;
+        bitmapInfo.bmiHeader.biPlanes = 1;
+        bitmapInfo.bmiHeader.biBitCount = 32;
+        bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+        const int x = targetRect.left + (targetRect.right - targetRect.left - kIconExtent) / 2;
+        const int y = targetRect.top + (targetRect.bottom - targetRect.top - kIconExtent) / 2;
+        return SetDIBitsToDevice(
+                   hdc,
+                   x,
+                   y,
+                   kIconExtent,
+                   kIconExtent,
+                   0,
+                   0,
+                   0,
+                   kIconExtent,
+                   pixels,
+                   &bitmapInfo,
+                   DIB_RGB_COLORS) != 0;
+    }
+
     void DrawCategoryButton(HWND hwnd, HDC hdc)
     {
         RECT rect = {};
@@ -818,7 +927,8 @@ namespace
         const bool hot = enabled && state->hot;
         const bool pressed = enabled && state->pressed;
 
-        HBRUSH background = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
+        COLORREF buttonBackground = GetSysColor(COLOR_BTNFACE);
+        HBRUSH background = CreateSolidBrush(buttonBackground);
         FillRect(hdc, &rect, background);
         DeleteObject(background);
 
@@ -828,6 +938,7 @@ namespace
                 pressed ? RGB(186, 226, 255) :
                 hot ? RGB(214, 238, 255) :
                 RGB(229, 245, 255);
+            buttonBackground = fill;
             HBRUSH fillBrush = CreateSolidBrush(fill);
             RECT fillRect = rect;
             InflateRect(&fillRect, -1, -1);
@@ -843,7 +954,7 @@ namespace
             DeleteObject(framePen);
         }
 
-        const int glyph = kCategoryButtonSize;
+        const int glyph = kCategoryGlyphExtent;
         RECT glyphRect =
         {
             (rect.right - glyph) / 2,
@@ -851,6 +962,12 @@ namespace
             (rect.right + glyph) / 2,
             (rect.bottom + glyph) / 2,
         };
+
+        const ObstacleIconData* icon = ObstacleIconForButton(
+            state ? state->index : -1,
+            enabled);
+        if (DrawObstacleIcon(hdc, glyphRect, icon, buttonBackground))
+            return;
 
         HPEN outline = CreatePen(
             PS_SOLID,
@@ -1153,8 +1270,8 @@ namespace
             WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
             x,
             y,
-            32,
-            32,
+            kCategoryButtonExtent,
+            kCategoryButtonExtent,
             parent,
             nullptr,
             s_pluginModule,
@@ -1165,7 +1282,14 @@ namespace
             return nullptr;
         }
 
-        SetWindowPos(hwnd, HWND_TOP, x, y, 32, 32, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+        SetWindowPos(
+            hwnd,
+            HWND_TOP,
+            x,
+            y,
+            kCategoryButtonExtent,
+            kCategoryButtonExtent,
+            SWP_SHOWWINDOW | SWP_NOACTIVATE);
         if (index == 0)
             SetTimer(hwnd, 1, kCategoryRefreshTimerMs, nullptr);
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1531,7 +1655,6 @@ namespace
             return false;
         }
 
-        constexpr int rowHeight = 32;
         constexpr int rowGap = 4;
         constexpr int sectionGap = 10;
         constexpr int labelToButtonsGap = 4;
@@ -1580,8 +1703,8 @@ namespace
 
             const int row = i / kCategoryButtonsPerRow;
             const int col = i % kCategoryButtonsPerRow;
-            const int buttonX = x + col * rowHeight;
-            const int buttonY = firstRowY + row * (rowHeight + rowGap);
+            const int buttonX = x + col * kCategoryButtonExtent;
+            const int buttonY = firstRowY + row * (kCategoryButtonExtent + rowGap);
             panel.categoryButtons[i] = CreateCategoryButton(parent, toolbar, i, buttonX, buttonY);
             if (!panel.categoryButtons[i])
             {

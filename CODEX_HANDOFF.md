@@ -1006,9 +1006,16 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
     produced zero terrain masks for some row-two one-tile marks;
   - do not trust the selection object's chunk dimensions as scan bounds. A
     one-tile brush mark below map tile row `35` could be visibly painted but
-    missed when the scan height came from the selection metadata. The current
-    code scans the full supported map grid and only reads terrain after
-    `CellStateAt` reports a painted cell;
+    missed when the scan height came from the selection metadata;
+  - authoritative square-map scan dimensions are runtime-read from
+    `[[obstacle UI context + 0x54] + 0x54]` (width) and `+0x58` (height), and
+    are accepted only when each is one of HotA's fixed map sizes: `36`, `72`,
+    `108`, `144`, `180`, `216`, or `252`;
+  - the earlier fixed `252x252` scan produced out-of-range selection aliases on
+    a `72x72` map. Those aliases caused painted Highlands/Wasteland cells to
+    spuriously add legacy Swamp/Rough bits. Runtime testing on 2026-07-12
+    confirmed that real map bounds remove both aliases while still detecting a
+    one-tile Swamp mark below row `35`;
   - `0x0042B23E` returns the map terrain tile for `(x, y)`, and the terrain ID
     is `tile & 0x0F`.
 - Runtime trace on 2026-07-05 verified that the active obstacle-paint layer for
@@ -1063,11 +1070,19 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
     mask `0x000000F0`, leaving the top placeholder row disabled and the bottom
     placeholder row enabled.
 - Manual validation on 2026-06-25 found that second-row one-tile marks failed
-  below tile row `35`; switching to full-map scan bounds fixed those marks.
+  below tile row `35`. A broad fixed-size scan initially fixed those marks but
+  was superseded on 2026-07-12 by the authoritative runtime map bounds above.
 - Manual validation on 2026-07-02 confirmed the newer initial-state behavior:
   all placeholder category buttons are enabled before painting; painting gates
   them by terrain; user-checked state survives generating obstacles, undo,
   clearing, and returning to the no-painted-area state.
+- User-created category icon PNGs live under
+  `plugin/resources/obstacle_icons/{enabled,disabled}`. They are 24x24 RGBA
+  images with matching numbered filenames. Run
+  `tools/generate_obstacle_icons.py` to regenerate the embedded
+  `plugin/obstacle_icon_data.cpp` table. The first three placeholder buttons
+  were visually accepted on 2026-07-12; disabled variants are grayscale with
+  alpha capped at 50 percent.
 - Manual validation on 2026-07-05 confirmed the stabilized trace path and Place
   overlay:
   - one-tile Dirt/Sand/Grass/Snow marks produced applied terrain mask
