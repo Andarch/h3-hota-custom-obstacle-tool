@@ -1134,6 +1134,19 @@ namespace
             }
             return 0;
         }
+        case WM_MOUSEWHEEL:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+            {
+                state->mouseInside = false;
+                state->hot = false;
+                KillTimer(hwnd, kCategoryPreviewTimerId);
+                HideObstaclePreview(hwnd);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return SendMessageA(GetParent(hwnd), message, wParam, lParam);
+        }
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_LBUTTONDOWN:
@@ -1245,19 +1258,6 @@ namespace
             }
             return 0;
         }
-        case WM_MOUSEWHEEL:
-        {
-            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state)
-            {
-                state->mouseInside = false;
-                state->hot = false;
-                KillTimer(hwnd, kCategoryPreviewTimerId);
-                HideObstaclePreview(hwnd);
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
-            return SendMessageA(GetParent(hwnd), message, wParam, lParam);
-        }
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_LBUTTONDOWN:
@@ -1348,20 +1348,51 @@ namespace
         info.nPos = state.scrollPosition;
         SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
 
-        for (int index = 0; index < kObstacleButtonCount; ++index)
+        const UINT positionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
+        HDWP deferred = BeginDeferWindowPos(kObstacleButtonCount);
+        if (deferred)
         {
-            if (!state.buttons[index])
-                continue;
-            SetWindowPos(
-                state.buttons[index],
-                nullptr,
-                state.buttonX[index],
-                state.buttonY[index] - state.scrollPosition,
-                kCategoryButtonExtent,
-                kCategoryButtonExtent,
-                SWP_NOZORDER | SWP_NOACTIVATE);
+            for (int index = 0; index < kObstacleButtonCount; ++index)
+            {
+                if (!state.buttons[index])
+                    continue;
+                deferred = DeferWindowPos(
+                    deferred,
+                    state.buttons[index],
+                    nullptr,
+                    state.buttonX[index],
+                    state.buttonY[index] - state.scrollPosition,
+                    kCategoryButtonExtent,
+                    kCategoryButtonExtent,
+                    positionFlags);
+                if (!deferred)
+                    break;
+            }
         }
-        InvalidateRect(hwnd, nullptr, TRUE);
+
+        bool positioned = deferred && EndDeferWindowPos(deferred) != FALSE;
+        if (!positioned)
+        {
+            for (int index = 0; index < kObstacleButtonCount; ++index)
+            {
+                if (!state.buttons[index])
+                    continue;
+                SetWindowPos(
+                    state.buttons[index],
+                    nullptr,
+                    state.buttonX[index],
+                    state.buttonY[index] - state.scrollPosition,
+                    kCategoryButtonExtent,
+                    kCategoryButtonExtent,
+                    positionFlags);
+            }
+        }
+
+        RedrawWindow(
+            hwnd,
+            nullptr,
+            nullptr,
+            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
 
     void ScrollHostTo(HWND hwnd, int position)
@@ -1654,8 +1685,6 @@ namespace
             SWP_SHOWWINDOW | SWP_NOACTIVATE);
         if (index == 0)
             SetTimer(hwnd, kCategoryRefreshTimerId, kCategoryRefreshTimerMs, nullptr);
-        InvalidateRect(hwnd, nullptr, FALSE);
-        UpdateWindow(hwnd);
         return hwnd;
     }
 
@@ -2178,12 +2207,11 @@ namespace
         LayoutScrollHost(panel.scrollHost, *scrollState);
         panel.layoutApplied = true;
         RefreshCategoryButtons(panel);
-        InvalidateRect(parent, nullptr, TRUE);
-        for (HWND button : panel.categoryButtons)
-        {
-            InvalidateRect(button, nullptr, FALSE);
-            UpdateWindow(button);
-        }
+        RedrawWindow(
+            panel.scrollHost,
+            nullptr,
+            nullptr,
+            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
         LogFormat(
             "Obstacle variants: created %d obstacle type buttons below Brush parent=%p placeOverlay=%p label=%p scrollHost=%p first=%p x=%d y=%d contentHeight=%d",
             kObstacleButtonCount,

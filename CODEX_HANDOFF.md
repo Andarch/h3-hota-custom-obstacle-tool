@@ -37,6 +37,8 @@ Implemented UI behavior:
 - `Obstacle Types` is followed by a plugin-owned vertical scrolling viewport;
 - the viewport preserves the workbook's four-column layout and row wrapping;
 - thin rules separate the seven sections, without category text labels;
+- viewport scrolling batches all child-window moves and repaints once, avoiding
+  partial/intermediate button layouts while dragging the scrollbar;
 - checked state comes from `Selected By Default`, persists independently of
   enabled state, and survives side-panel recreation/tool switches;
 - painted-terrain applicability comes from `Button Mapping`; Rock remains
@@ -59,10 +61,12 @@ Verification on 2026-07-13:
 - Debug Win32 and Release Win32 built successfully;
 - the editor started through the Debug launcher and all expected hook bytes,
   executable hashes, and metadata availability checks passed;
-- visual inspection and actual selected-button placement remain pending because
-  Windows was locked during the automated test attempt;
-- visual/runtime acceptance is still required before treating selected-button
-  filtering and generalized RandTrn borrowing as runtime verified.
+- user runtime testing confirmed all buttons paint immediately, scrollbar-thumb
+  dragging is smooth, and painted terrain activates/deactivates the expected
+  buttons;
+- with `Sand Mountains` unchecked, generation placed only `Sand Dunes`,
+  runtime-verifying checked-button candidate filtering;
+- generalized RandTrn borrowing still needs an isolated runtime test.
 
 ## User Goals And Decisions
 
