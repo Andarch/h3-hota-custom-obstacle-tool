@@ -16,59 +16,53 @@ Do not begin by recreating the entire map editor. A standalone map library or
 tool may become useful later, but the official editor plugin is currently the
 lowest-cost path for features that need HotA's native editor behavior.
 
-## Next Session Handoff
+## Current Obstacle Button Implementation
 
-The basic category UI foundation is implemented and manually accepted. The
-next task is to replace the eight temporary terrain-mapped placeholder buttons
-with the complete category/button model from:
+The workbook-driven 60-button implementation is now in the source tree. Its
+authoritative inputs are the `Obstacles`, `Button Layout`, and `Button Mapping`
+tabs in:
 
 `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx`
 
-Read the workbook's `Obstacles`, `Button Layout`, and `Button Mapping` tabs
-before generating code. The workbook currently defines 60 buttons. Preserve
-its four-column layout, intentional row wrapping, default-selected values, and
-terrain applicability.
+`tools/generate_obstacle_buttons.py` emits
+`plugin/obstacle_button_data.{h,cpp}`. The generated data contains 60 buttons,
+7 visual sections, 865 DEF-to-button mappings, 34 selected-mode `objects.txt`
+template overrides, and 12 explicit RandTrn borrow sources. Regenerate it after
+changing any of those workbook tabs; do not edit the generated files by hand.
 
-UI direction for the full implementation:
+Implemented UI behavior:
 
-- keep the native Brush section first and the plugin-owned `Obstacle Types`
-  section below it;
-- do not add text labels such as `Raised Ground`, `Trees`, or the other category
-  names because the `Obstacle Types` heading already explains the section;
-- preserve the workbook's visual grouping, potentially with thin horizontal
-  rules between category groups;
-- provide vertical scrolling because all 60 buttons will not fit in the side
-  panel at once;
-- keep four buttons per row unless the user explicitly changes the layout;
-- retain checked state while buttons are disabled by terrain applicability and
-  across paint sessions/tool switches;
-- keep the plugin-owned Place Obstacles overlay and keyboard-command gating.
+- the native Brush section and plugin-owned Place Obstacles overlay remain
+  fixed;
+- `Obstacle Types` is followed by a plugin-owned vertical scrolling viewport;
+- the viewport preserves the workbook's four-column layout and row wrapping;
+- thin rules separate the seven sections, without category text labels;
+- checked state comes from `Selected By Default`, persists independently of
+  enabled state, and survives side-panel recreation/tool switches;
+- painted-terrain applicability comes from `Button Mapping`; Rock remains
+  unsupported;
+- all 60 hover popups use the workbook button name. Buttons without supplied
+  icon/preview art use the existing square placeholder;
+- only DEFs mapped to checked buttons pass the final native candidate hook;
+- selected plugin/custom rows are replaced or appended in a temporary
+  per-generation `objects.txt` overlay;
+- explicit DEF-name RandTrn borrowing is generalized from the workbook.
+  `self` and `native bucket` leave HotA's native row assignment unchanged.
 
-Current accepted UI behavior and assets:
+The first three buttons retain the accepted 24x24 icons and 160x160 previews.
+The popup remains 164x187: a 164x164 image area with two-pixel border and a
+fixed 23-pixel `#f0f0f0` caption area separated by a two-pixel divider.
 
-- the plugin-owned Place Obstacles overlay visually matches the native flat
-  toolbar button and has the native tooltip;
-- the Brush section no longer jumps when plugin controls appear;
-- category enablement uses obstacle-paint collection `0`, state `2`, and the
-  authoritative runtime map dimensions documented below;
-- the first three placeholder buttons use numbered 24x24 enabled/disabled RGBA
-  PNGs under `plugin/resources/obstacle_icons`;
-- the same three buttons use native 160x160 RGBA hover previews with alpha and
-  semi-transparent shadows under the `preview` subfolder;
-- previews appear after 250 ms in a shared non-activating popup, work for
-  enabled and disabled buttons, and composite against a white background;
-- the popup uses a fixed 164x164 image area containing a centered 160x160
-  preview directly adjoining a two-pixel border; a fixed-height, single-line
-  caption sits below it on a `#f0f0f0` background behind a two-pixel divider,
-  with the first three named `Dirt Mountains`, `Sand Mountains`, and
-  `Sand Dunes`;
-- `tools/generate_obstacle_icons.py` embeds the 24x24 pixels in generated C++
-  and the compressed preview PNGs as generated `RCDATA` resources.
+Verification on 2026-07-13:
 
-Before expanding to all 60 buttons, generate the button metadata from the
-workbook rather than hand-maintaining parallel tables. Keep icon/preview lookup
-by the existing two-digit button prefix so additional assets can be added
-incrementally.
+- workbook generation passed with the counts above;
+- Debug Win32 and Release Win32 built successfully;
+- the editor started through the Debug launcher and all expected hook bytes,
+  executable hashes, and metadata availability checks passed;
+- visual inspection and actual selected-button placement remain pending because
+  Windows was locked during the automated test attempt;
+- visual/runtime acceptance is still required before treating selected-button
+  filtering and generalized RandTrn borrowing as runtime verified.
 
 ## User Goals And Decisions
 
@@ -923,15 +917,20 @@ Extra object-template overlay support added on 2026-06-20:
 - To avoid shipping a full custom `objects.txt` or expanding the 200-row
   `rand_trn.txt` matrix, `plugin/obstacle_filter.cpp` now:
   - redirects the editor `objects.txt` loader at `h3hota_maped.exe:0x004909C6`
-    only while Thick or Thin variant mode is active and an overlay row is needed;
+    only while an active generation mode needs an overlay row;
   - writes a temporary `Data\HotaMapEdPlugin_objects_<pid>.txt` copied from
-    the installed `Data\objects.txt`, with the row count incremented and only
-    the active mode's plugin-supplied rows appended, then passes only that
-    resource filename to the editor loader;
+    the installed `Data\objects.txt`, then passes only that resource filename
+    to the editor loader. Legacy Thick/Thin rows append as before. The 60-button
+    mode replaces existing selected plugin/custom DEF rows and appends selected
+    rows that are absent, updating the row count accordingly;
   - captures the native snow-mountain row pointer at
     `hota_me.dll:0x100D6DF4` while HotA assigns wrapper `+0x10`;
   - assigns that captured row pointer to glacier wrappers at
     `hota_me.dll:0x100D6E01` if HotA leaves their wrapper `+0x10` unset.
+- The 60-button mode generalizes the two parser hooks: it records row pointers
+  for the 12 explicit source DEFs generated from `Leveraged RandTrn` and assigns
+  them to the corresponding target DEF wrappers. Rows marked `self` or
+  `native bucket` do not receive plugin row assignment.
 - Glacier support is intentionally Thick-only. `avlbon01.def` is supplied only
   during Thin mode and uses the same object-template masks and native
   object/scoring identity as `avlbon02.def` (`139/22`), so no special
@@ -1031,15 +1030,10 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   - Thick/Thin buttons are visible and clickable;
   - Thick/Thin generation works;
   - keyboard shortcuts work before and after clicking the new buttons.
-- Category-button placeholder UI was started after the Thick/Thin prototype:
-  eight 32x32 child-window buttons are placed below the native Brush section in
-  two rows of four. An `Obstacle Types` label above the rows inherits the native
-  Brush label's font. Native Brush controls remain at their original positions.
-  The placeholders are currently test controls for the planned category-toggle
-  behavior: the buttons preserve checked state, gray out when not applicable to
-  the current painted terrain mask, and are used by the plugin-owned Place
-  Obstacles overlay to decide whether generation is allowed. The user visually
-  accepted this below-Brush layout on 2026-07-12.
+- The accepted eight-button prototype has been replaced by the 60 generated
+  32x32 buttons described above. `Obstacle Types` and the native Brush controls
+  remain fixed while only the button viewport scrolls. Workbook section breaks
+  render as thin rules without category labels.
 - Terrain-specific category-button enablement now hooks the native update-UI
   handler at `h3hota_maped.exe:0x00484C9A` only to capture the live obstacle UI
   context from `esi`. The hook preserves the original `mov eax, [esi+64h]` /
@@ -1085,9 +1079,9 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   state to decide whether the scanned terrain mask is meaningful. It derives
   "paint exists" directly from collection `0` / state `2` cell count. Before
   painting, or after generation/clear/undo leaves no active obstacle paint
-  area, all placeholder category buttons remain enabled so the user can set
-  category intent before painting. While an active painted area exists, only
-  buttons whose terrain bit is present remain enabled.
+  area, all obstacle type buttons remain enabled so the user can set intent
+  before painting. While an active painted area exists, each button is enabled
+  when its generated `Button Mapping` terrain mask intersects the painted mask.
 - Category-button checked state is independent of enabled state and is stored
   outside the child windows. This preserves user customization when buttons
   temporarily gray out or the editor recreates the side panel/buttons after
@@ -1105,7 +1099,8 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   is empty, the overlay draws disabled and click does nothing. The UI-thread
   message hook also blocks native command `32927` in that empty-pool state, so
   `Shift+O`/accelerators cannot bypass the overlay gate.
-- Runtime validation through Computer Use on 2026-06-23:
+- Runtime validation of the eight-button prototype through Computer Use on
+  2026-06-23:
   - category buttons are gray before obstacle painting;
   - painting only Dirt enables only placeholder button `0`;
   - painting only Sand enables only placeholder button `1`;
@@ -1117,8 +1112,8 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   - painting only Lava enables only placeholder button `7`;
   - undo disables the buttons again;
   - `Ctrl+Z` still worked during this test.
-- Runtime validation through Computer Use on 2026-06-25 after the selection
-  scan fix:
+- Runtime validation of the eight-button prototype through Computer Use on
+  2026-06-25 after the selection scan fix:
   - one-tile brush marks across terrain IDs `0..7` produced raw terrain mask
     `0x000000FF` and enabled all eight placeholder category buttons;
   - undoing all marks disabled the category buttons;
@@ -1128,15 +1123,15 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
 - Manual validation on 2026-06-25 found that second-row one-tile marks failed
   below tile row `35`. A broad fixed-size scan initially fixed those marks but
   was superseded on 2026-07-12 by the authoritative runtime map bounds above.
-- Manual validation on 2026-07-02 confirmed the newer initial-state behavior:
-  all placeholder category buttons are enabled before painting; painting gates
-  them by terrain; user-checked state survives generating obstacles, undo,
-  clearing, and returning to the no-painted-area state.
+- Manual validation on 2026-07-02 confirmed the newer prototype initial-state
+  behavior: all buttons are enabled before painting; painting gates them by
+  terrain; user-checked state survives generating obstacles, undo, clearing,
+  and returning to the no-painted-area state.
 - User-created category icon PNGs live under
   `plugin/resources/obstacle_icons/{enabled,disabled}`. They are 24x24 RGBA
   images with matching numbered filenames. Run
   `tools/generate_obstacle_icons.py` to regenerate the embedded
-  `plugin/obstacle_icon_data.cpp` table. The first three placeholder buttons
+  `plugin/obstacle_icon_data.cpp` table. The first three buttons
   were visually accepted on 2026-07-12; disabled variants are grayscale with
   alpha capped at 50 percent.
 - Manual validation on 2026-07-05 confirmed the stabilized trace path and Place
@@ -1152,14 +1147,14 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
 ### Current Obstacle Workbook Contract
 
 As of 2026-07-01, the workbook at
-`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx` is the planning
-source for replacing the temporary Thick/Thin UI with category toggles.
+`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx` is the source of
+truth for the obstacle type UI and selected-button generation filter.
 
 Current `Obstacles` tab audit:
 
 - 865 obstacle rows;
 - 7 categories;
-- 60 planned buttons;
+- 60 buttons;
 - `Source` counts: 836 `hota`, 29 `plugin`;
 - 5 intentional custom random masks;
 - 56 `native bucket` RandTrn entries;
@@ -1208,16 +1203,26 @@ Known plugin/borrowed RandTrn entries:
   the workbook (`avlxsu04.def`, `avlxsu09.def`, and `AVLskul0.def` where
   applicable).
 
-The next planned workbook tab/table should be button-level, not DEF-level, and
-should drive category enablement and default selection. Keep its terrain
-columns in the same visual bit order as the `Obstacles` tab and full 12-digit
-mask strings:
+`Button Mapping` drives category membership, button names, default selection,
+and the 12 terrain applicability columns. `Button Layout` drives visual order,
+four-column wrapping, and section breaks. Rock is void space; the generator
+rejects any button that enables it.
 
-`Category`, `Button`, `Default Selected`, `WST`, `HIG`, `RCK`, `WTR`, `LAV`,
-`SUB`, `RGH`, `SWP`, `SNW`, `GRS`, `SND`, `DRT`.
+Regenerate button metadata and plugin/custom template rows with:
 
-Rock is void space; assume no category buttons enable for Rock unless the user
-explicitly changes that direction.
+```powershell
+python tools\generate_obstacle_buttons.py `
+  --workbook 'C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx' `
+  --edobjts 'C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\edobjts.txt'
+```
+
+The generator validates required sheets/columns, one-to-one layout coverage,
+terrain values, DEF hash collisions, DEF-to-button coverage, explicit borrow
+sources, and exact ID/SubID matches for plugin/custom `edobjts.txt` rows.
+The 34 committed override strings are the minimum derived template rows needed
+for this feature: each comes from the matching HotA 1.8.0 `edobjts.txt` row with
+only the workbook `Random Mask` substituted. The raw extracted source files are
+not committed.
 
 Existing Thick/Thin generator command after the workbook is classified:
 

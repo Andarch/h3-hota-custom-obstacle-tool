@@ -22,14 +22,15 @@ Icon requirements:
 
 Preview requirements:
 
-- 96 x 96 pixels;
+- 160 x 160 pixels;
 - 32-bit RGBA PNG;
 - transparent background;
 - full color only; no disabled preview is needed.
 
-The plugin draws previews in a 104 x 104 non-activating popup with a two-pixel
-border, two-pixel inner gap, and white background. Preview alpha is preserved,
-including semi-transparent native-style shadows.
+The plugin draws previews in a 164 x 164 white image area: 160 x 160 pixels
+directly adjoining a two-pixel border. A fixed 23-pixel caption area appears
+below it on `#f0f0f0`, separated by a two-pixel divider. Preview alpha is
+preserved, including semi-transparent native-style shadows.
 
 HotA reference images remain under `scratch/hota_me_resources` and must not be
 copied here or committed.
@@ -37,6 +38,5 @@ copied here or committed.
 Regenerate the embedded icon table after adding or changing icons:
 
 ```powershell
-& 'C:\Users\Andy\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
-  tools\generate_obstacle_icons.py
+python tools\generate_obstacle_icons.py
 ```

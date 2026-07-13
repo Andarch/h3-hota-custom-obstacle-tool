@@ -3,6 +3,7 @@
 
 #include "hook.h"
 #include "logger.h"
+#include "obstacle_button_data.h"
 #include "obstacle_classification.h"
 #include "target_profile.h"
 
@@ -165,6 +166,9 @@ namespace
     volatile LONG s_archFallbackAssignments = 0;
     volatile LONG s_thinScoringRowOverrides = 0;
     volatile LONG s_generationFilterMode = 0;
+    volatile LONG s_selectedButtonMaskLow = 0;
+    volatile LONG s_selectedButtonMaskHigh = 0;
+    volatile LONG s_buttonBorrowAssignments = 0;
 
     struct VariantTraceRowStats
     {
@@ -275,6 +279,28 @@ namespace
         {
             return false;
         }
+    }
+
+    const char* FilterModeName(ObstacleGenerationFilterMode mode)
+    {
+        if (mode == ObstacleGenerationFilterMode::ThickOnly)
+            return "thick-only";
+        if (mode == ObstacleGenerationFilterMode::ThinOnly)
+            return "thin-only";
+        if (mode == ObstacleGenerationFilterMode::ButtonSelection)
+            return "button-selection";
+        return "none";
+    }
+
+    bool IsObstacleButtonSelected(int buttonIndex)
+    {
+        if (buttonIndex < 0 || buttonIndex >= 64)
+            return false;
+        const DWORD mask = static_cast<DWORD>(InterlockedCompareExchange(
+            buttonIndex < 32 ? &s_selectedButtonMaskLow : &s_selectedButtonMaskHigh,
+            0,
+            0));
+        return (mask & (1u << (buttonIndex & 31))) != 0;
     }
 
     bool ReadWholeFile(const char* path, std::string& contents)
@@ -388,6 +414,112 @@ namespace
         return nullptr;
     }
 
+    const ObstacleTemplateOverride* SelectedTemplateOverrideForLine(
+        const std::string& line,
+        DWORD& overrideIndex)
+    {
+        const size_t tokenEnd = line.find_first_of(" \t\r");
+        const std::string defName = line.substr(0, tokenEnd);
+        for (DWORD index = 0; index < ObstacleTemplateOverrideCount(); ++index)
+        {
+            const ObstacleTemplateOverride* item = ObstacleTemplateOverrideAt(index);
+            if (item &&
+                IsObstacleButtonSelected(item->buttonIndex) &&
+                _stricmp(defName.c_str(), item->defName) == 0)
+            {
+                overrideIndex = index;
+                return item;
+            }
+        }
+        return nullptr;
+    }
+
+    bool BuildButtonSelectionOverlay(
+        const std::string& source,
+        size_t firstLineEnd,
+        DWORD baseRowCount,
+        std::string& overlay,
+        DWORD& resultingRowCount,
+        DWORD& replacedRows,
+        DWORD& appendedRows)
+    {
+        constexpr DWORD kMaximumTemplateOverrides = 128;
+        const DWORD overrideCount = ObstacleTemplateOverrideCount();
+        if (overrideCount > kMaximumTemplateOverrides)
+            return false;
+
+        bool used[kMaximumTemplateOverrides] = {};
+        replacedRows = 0;
+        appendedRows = 0;
+        overlay.clear();
+        overlay.reserve(source.size() + overrideCount * 256);
+
+        const size_t bodyStart = firstLineEnd + 1;
+        size_t position = bodyStart;
+        while (position < source.size())
+        {
+            const size_t newline = source.find('\n', position);
+            const size_t lineEnd = newline == std::string::npos ? source.size() : newline;
+            size_t textEnd = lineEnd;
+            if (textEnd > position && source[textEnd - 1] == '\r')
+                --textEnd;
+            const std::string line = source.substr(position, textEnd - position);
+
+            DWORD overrideIndex = 0;
+            const ObstacleTemplateOverride* replacement =
+                line.empty() ? nullptr : SelectedTemplateOverrideForLine(line, overrideIndex);
+            if (replacement)
+            {
+                overlay += replacement->row;
+                overlay += "\r\n";
+                used[overrideIndex] = true;
+                ++replacedRows;
+            }
+            else
+            {
+                overlay.append(source, position, lineEnd - position);
+                if (newline != std::string::npos)
+                    overlay += '\n';
+            }
+
+            if (newline == std::string::npos)
+                break;
+            position = newline + 1;
+        }
+
+        if (!overlay.empty() && overlay[overlay.size() - 1] != '\n')
+            overlay += "\r\n";
+        for (DWORD index = 0; index < overrideCount; ++index)
+        {
+            const ObstacleTemplateOverride* item = ObstacleTemplateOverrideAt(index);
+            if (!used[index] && item && IsObstacleButtonSelected(item->buttonIndex))
+            {
+                overlay += item->row;
+                overlay += "\r\n";
+                ++appendedRows;
+            }
+        }
+
+        resultingRowCount = baseRowCount + appendedRows;
+        char countText[32] = {};
+        sprintf_s(countText, "%lu", resultingRowCount);
+        const std::string headerSuffix = source.substr(firstLineEnd, bodyStart - firstLineEnd);
+        overlay.insert(0, headerSuffix);
+        overlay.insert(0, countText);
+        return true;
+    }
+
+    bool ButtonSelectionNeedsObjectsOverlay()
+    {
+        for (DWORD index = 0; index < ObstacleTemplateOverrideCount(); ++index)
+        {
+            const ObstacleTemplateOverride* item = ObstacleTemplateOverrideAt(index);
+            if (item && IsObstacleButtonSelected(item->buttonIndex))
+                return true;
+        }
+        return false;
+    }
+
     bool EnsureObjectsOverlayFile(ObstacleGenerationFilterMode mode)
     {
         if (s_objectsOverlayReady)
@@ -435,27 +567,45 @@ namespace
             return false;
         }
 
-        DWORD extraRows = 0;
-        const char* const* rows = ExtraObjectRowsForMode(mode, extraRows);
-        if (!rows || extraRows == 0)
-            return false;
-
         std::string overlay;
-        char newCount[32] = {};
-        sprintf_s(newCount, "%lu", rowCount + extraRows);
-
-        overlay.reserve(source.size() + 1024);
-        overlay.assign(source.data(), source.data() + firstLineEnd);
-        overlay.replace(0, overlay.size(), newCount);
-        overlay.append(source.data() + firstLineEnd, source.data() + source.size());
-
-        if (!overlay.empty() && overlay[overlay.size() - 1] != '\n')
-            overlay += "\r\n";
-
-        for (DWORD index = 0; index < extraRows; ++index)
+        DWORD extraRows = 0;
+        DWORD replacedRows = 0;
+        DWORD resultingRowCount = rowCount;
+        if (mode == ObstacleGenerationFilterMode::ButtonSelection)
         {
-            overlay += rows[index];
-            overlay += "\r\n";
+            if (!BuildButtonSelectionOverlay(
+                    source,
+                    firstLineEnd,
+                    rowCount,
+                    overlay,
+                    resultingRowCount,
+                    replacedRows,
+                    extraRows))
+            {
+                LogMessage("Obstacle variants: could not build button-selection object overlay.");
+                return false;
+            }
+        }
+        else
+        {
+            const char* const* rows = ExtraObjectRowsForMode(mode, extraRows);
+            if (!rows || extraRows == 0)
+                return false;
+
+            char newCount[32] = {};
+            sprintf_s(newCount, "%lu", rowCount + extraRows);
+            resultingRowCount = rowCount + extraRows;
+            overlay.reserve(source.size() + 1024);
+            overlay.assign(source.data(), source.data() + firstLineEnd);
+            overlay.replace(0, overlay.size(), newCount);
+            overlay.append(source.data() + firstLineEnd, source.data() + source.size());
+            if (!overlay.empty() && overlay[overlay.size() - 1] != '\n')
+                overlay += "\r\n";
+            for (DWORD index = 0; index < extraRows; ++index)
+            {
+                overlay += rows[index];
+                overlay += "\r\n";
+            }
         }
 
         if (!WriteWholeFile(s_objectsOverlayPath, overlay))
@@ -468,11 +618,13 @@ namespace
 
         s_objectsOverlayReady = true;
         LogFormat(
-            "Obstacle variants: object overlay ready mode=%ld resource=%s path=%s baseRows=%lu extraRows=%lu",
+            "Obstacle variants: object overlay ready mode=%ld resource=%s path=%s baseRows=%lu rows=%lu replacedRows=%lu appendedRows=%lu",
             static_cast<LONG>(mode),
             s_objectsOverlayResourceName,
             s_objectsOverlayPath,
             rowCount,
+            resultingRowCount,
+            replacedRows,
             extraRows);
         return true;
     }
@@ -507,6 +659,13 @@ namespace
 
         const auto mode = static_cast<ObstacleGenerationFilterMode>(
             InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
+        if (mode == ObstacleGenerationFilterMode::ButtonSelection)
+        {
+            if (!ButtonSelectionNeedsObjectsOverlay())
+                return source;
+            return EnsureObjectsOverlayFile(mode) ? s_objectsOverlayResourceName : source;
+        }
+
         DWORD extraRows = 0;
         if (!ExtraObjectRowsForMode(mode, extraRows) || extraRows == 0)
             return source;
@@ -666,7 +825,7 @@ namespace
             {
                 LogFormat("Obstacle variants: rejected unreadable final candidate record=%p reason=%s",
                     reinterpret_cast<void*>(record),
-                    mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" : "thin-only");
+                    FilterModeName(mode));
             }
             else if (hit == 33)
             {
@@ -677,7 +836,10 @@ namespace
 
         const ObstacleThickness thickness =
             GetObstacleThicknessForObjectTemplate(objectTemplate);
-        const bool allowed = ObstacleThicknessAllowedInMode(thickness, mode);
+        const int buttonIndex = ObstacleButtonIndexForObjectTemplate(objectTemplate);
+        const bool allowed = mode == ObstacleGenerationFilterMode::ButtonSelection
+            ? IsObstacleButtonSelected(buttonIndex)
+            : ObstacleThicknessAllowedInMode(thickness, mode);
 
         DWORD rowId = 0;
         const bool haveRowId = TryReadCandidateRecordRowId(record, rowId);
@@ -701,14 +863,15 @@ namespace
         if (s_variantTraceEnabled && seen <= 16)
         {
             LogFormat(
-                "Obstacle variants: observed final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu thickness=%s mode=%s",
+                "Obstacle variants: observed final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu button=%d thickness=%s mode=%s",
                 reinterpret_cast<void*>(record),
                 reinterpret_cast<void*>(objectTemplate),
                 defKey,
                 objectId,
                 subtype,
+                buttonIndex,
                 ObstacleThicknessName(thickness),
-                mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" : "thin-only");
+                FilterModeName(mode));
         }
 
         if (!allowed)
@@ -717,14 +880,15 @@ namespace
             if (s_variantTraceEnabled && hit <= 32)
             {
                 LogFormat(
-                    "Obstacle variants: rejected final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu thickness=%s reason=%s",
+                    "Obstacle variants: rejected final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu button=%d thickness=%s reason=%s",
                     reinterpret_cast<void*>(record),
                     reinterpret_cast<void*>(objectTemplate),
                     defKey,
                     objectId,
                     subtype,
+                    buttonIndex,
                     ObstacleThicknessName(thickness),
-                    mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" : "thin-only");
+                    FilterModeName(mode));
             }
             else if (s_variantTraceEnabled && hit == 33)
             {
@@ -841,6 +1005,13 @@ namespace
         const auto mode = static_cast<ObstacleGenerationFilterMode>(
             InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
 
+        if (mode == ObstacleGenerationFilterMode::ButtonSelection)
+        {
+            DWORD objectTemplate = 0;
+            if (SafeReadDword(wrapper, objectTemplate) && objectTemplate)
+                ObserveObstacleBorrowSourceRow(objectTemplate, rowRecord);
+        }
+
         if (mode == ObstacleGenerationFilterMode::ThickOnly &&
             IsSnowMountainWrapper(wrapper) &&
             s_snowMountainRowRecord == 0)
@@ -894,6 +1065,34 @@ namespace
     {
         const auto mode = static_cast<ObstacleGenerationFilterMode>(
             InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
+
+        if (mode == ObstacleGenerationFilterMode::ButtonSelection)
+        {
+            DWORD objectTemplate = 0;
+            if (!SafeReadDword(wrapper, objectTemplate) || !objectTemplate)
+                return;
+            const DWORD sourceRowRecord =
+                ObstacleBorrowedRowForObjectTemplate(objectTemplate);
+            if (!sourceRowRecord)
+                return;
+
+            DWORD existingRow = 0;
+            if (SafeReadDword(wrapper + 0x10, existingRow) &&
+                existingRow != sourceRowRecord &&
+                SafeWriteDword(wrapper + 0x10, sourceRowRecord))
+            {
+                const LONG hit = InterlockedIncrement(&s_buttonBorrowAssignments);
+                if (s_variantTraceEnabled && hit <= 32)
+                {
+                    LogFormat(
+                        "Obstacle variants: assigned explicit borrowed rand_trn row wrapper=%p template=%p row=%p",
+                        reinterpret_cast<void*>(wrapper),
+                        reinterpret_cast<void*>(objectTemplate),
+                        reinterpret_cast<void*>(sourceRowRecord));
+                }
+            }
+            return;
+        }
 
         DWORD sourceRowRecord = 0;
         bool isTarget = false;
@@ -1055,10 +1254,7 @@ namespace
         if (!s_variantTraceEnabled)
             return;
 
-        const char* const modeName =
-            mode == ObstacleGenerationFilterMode::ThickOnly ? "thick-only" :
-            mode == ObstacleGenerationFilterMode::ThinOnly ? "thin-only" :
-            "none";
+        const char* const modeName = FilterModeName(mode);
 
         LogFormat("Obstacle variants trace summary begin mode=%s", modeName);
 
@@ -1108,10 +1304,17 @@ namespace
         __asm
         {
             pushad
+            mov     ecx, [esp+1Ch]
             lea     edx, [ebp-64h]
             push    edx
-            push    eax
+            push    ecx
             call    RegisterObstacleTemplateDefName
+
+            mov     ecx, [esp+1Ch]
+            lea     edx, [ebp-64h]
+            push    edx
+            push    ecx
+            call    RegisterObstacleButtonDefName
             popad
 
             mov     esi, eax
@@ -1130,7 +1333,8 @@ bool ObstacleFilterEnabled()
 bool InstallObstacleFilterHooks(std::string& error)
 {
     const bool rowFilterEnabled = ObstacleFilterEnabled();
-    const bool candidateFilterEnabled = ObstacleThicknessTableAvailable();
+    const bool candidateFilterEnabled =
+        ObstacleThicknessTableAvailable() || ObstacleButtonDataAvailable();
     if (!rowFilterEnabled && !candidateFilterEnabled)
     {
         LogMessage("Obstacle filter: no row or candidate hooks requested.");
@@ -1333,12 +1537,14 @@ bool InstallObstacleFilterHooks(std::string& error)
             LogMessage("Obstacle variants trace: score-path hooks disabled; using final-candidate trace only.");
 
         LogFormat(
-            "Obstacle variants installed: objectsOverlayRedirect=%p hotaRowCapture=%p hotaGlacierFallback=%p objectDefRegistration=%p finalCandidateRecord=%p thicknessTable=available trace=%s",
+            "Obstacle variants installed: objectsOverlayRedirect=%p hotaRowCapture=%p hotaFallback=%p objectDefRegistration=%p finalCandidateRecord=%p thicknessTable=%s buttonData=%s trace=%s",
             objectsTxtLoader,
             hotaParserStore,
             hotaParserWrapperFallback,
             objectRecordAssignReturn,
             predicate,
+            ObstacleThicknessTableAvailable() ? "available" : "missing",
+            ObstacleButtonDataAvailable() ? "available" : "missing",
             s_variantTraceEnabled ? "on" : "off");
     }
 
@@ -1363,12 +1569,20 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         InterlockedExchange(&s_rejectedCandidates, 0);
         InterlockedExchange(&s_glacierFallbackAssignments, 0);
         InterlockedExchange(&s_archFallbackAssignments, 0);
+        InterlockedExchange(&s_buttonBorrowAssignments, 0);
         InterlockedExchange(&s_thinScoringRowOverrides, 0);
         s_snowMountainRowRecord = 0;
         s_wastelandStoneRowRecord = 0;
         ZeroMemory(s_thinScoringReferenceRows, sizeof(s_thinScoringReferenceRows));
+        ResetObstacleBorrowedRows();
         ClearVariantTraceRows();
     }
 
     InterlockedExchange(&s_generationFilterMode, static_cast<LONG>(mode));
+}
+
+void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask)
+{
+    InterlockedExchange(&s_selectedButtonMaskLow, static_cast<LONG>(lowMask));
+    InterlockedExchange(&s_selectedButtonMaskHigh, static_cast<LONG>(highMask));
 }

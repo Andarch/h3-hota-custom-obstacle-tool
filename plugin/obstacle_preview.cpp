@@ -2,6 +2,7 @@
 #include "obstacle_preview.h"
 
 #include "logger.h"
+#include "obstacle_button_data.h"
 #include "obstacle_icon_data.h"
 
 #include <objbase.h>
@@ -23,13 +24,6 @@ namespace
     constexpr int kPreviewWindowHeight = kPreviewImageAreaExtent + kPreviewCaptionExtent;
     constexpr int kPreviewAnchorGap = 8;
 
-    constexpr const char* kPreviewButtonCaptions[] =
-    {
-        "Dirt Mountains",
-        "Sand Mountains",
-        "Sand Dunes",
-    };
-
     struct PreviewCacheEntry
     {
         bool attempted = false;
@@ -46,11 +40,7 @@ namespace
 
     const char* PreviewCaptionForButton(int buttonIndex)
     {
-        const int captionCount =
-            static_cast<int>(sizeof(kPreviewButtonCaptions) / sizeof(kPreviewButtonCaptions[0]));
-        if (buttonIndex < 0 || buttonIndex >= captionCount)
-            return nullptr;
-        return kPreviewButtonCaptions[buttonIndex];
+        return ObstacleButtonName(buttonIndex);
     }
 
     bool DecodePreviewResource(int resourceId, std::vector<BYTE>& bgra)
@@ -228,6 +218,24 @@ namespace
         PreviewCacheEntry* preview = PreviewForButton(s_previewButtonIndex);
         if (preview)
             DrawPreviewPixels(hdc, *preview, backgroundColor);
+        else
+        {
+            const int placeholderExtent = 48;
+            const int left = (kPreviewImageAreaExtent - placeholderExtent) / 2;
+            const int top = (kPreviewImageAreaExtent - placeholderExtent) / 2;
+            HPEN outline = CreatePen(PS_SOLID, 2, RGB(128, 128, 255));
+            HGDIOBJ oldPen = SelectObject(hdc, outline);
+            HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            Rectangle(
+                hdc,
+                left,
+                top,
+                left + placeholderExtent,
+                top + placeholderExtent);
+            SelectObject(hdc, oldBrush);
+            SelectObject(hdc, oldPen);
+            DeleteObject(outline);
+        }
 
         RECT dividerRect =
         {
@@ -380,14 +388,13 @@ namespace
 
 bool ObstaclePreviewAvailable(int buttonIndex)
 {
-    return ObstaclePreviewResourceForButton(buttonIndex) >= 0;
+    return ObstacleButtonName(buttonIndex) != nullptr;
 }
 
 bool ShowObstaclePreview(HMODULE pluginModule, HWND anchor, int buttonIndex)
 {
     if (!ObstaclePreviewAvailable(buttonIndex) ||
-        !EnsurePreviewWindow(pluginModule, anchor) ||
-        !PreviewForButton(buttonIndex))
+        !EnsurePreviewWindow(pluginModule, anchor))
     {
         HideObstaclePreview(nullptr);
         return false;

@@ -3,6 +3,7 @@
 
 #include "logger.h"
 #include "hook.h"
+#include "obstacle_button_data.h"
 #include "obstacle_classification.h"
 #include "obstacle_filter.h"
 #include "obstacle_icon_data.h"
@@ -19,11 +20,12 @@ namespace
     constexpr UINT kVanillaPlaceObstaclesCommand = 32927;
     constexpr UINT kPlaceThickObstaclesCommand = 0x7001;
     constexpr UINT kPlaceThinObstaclesCommand = 0x7002;
-    constexpr int kCategoryPlaceholderCount = 8;
-    constexpr bool kUseLargeCategoryButtonPreview = false;
-    constexpr int kCategoryButtonsPerRow = kUseLargeCategoryButtonPreview ? 3 : 4;
-    constexpr int kCategoryButtonExtent = kUseLargeCategoryButtonPreview ? 40 : 32;
-    constexpr int kCategoryGlyphExtent = kUseLargeCategoryButtonPreview ? 32 : 24;
+    constexpr int kCategoryButtonExtent = 32;
+    constexpr int kCategoryGlyphExtent = 24;
+    constexpr int kCategoryRowGap = 4;
+    constexpr int kCategoryRuleGap = 15;
+    constexpr int kCategoryRuleOffset = 7;
+    constexpr int kScrollWheelStep = kCategoryButtonExtent + kCategoryRowGap;
     constexpr int kGridSelectionCollectionCount = 16;
     constexpr int kObstaclePaintCollectionIndex = 0;
     constexpr int kObstaclePaintCellState = 2;
@@ -43,7 +45,8 @@ namespace
         HWND sourceToolbar = nullptr;
         HWND placeOverlay = nullptr;
         HWND categoryLabel = nullptr;
-        HWND categoryButtons[kCategoryPlaceholderCount] = {};
+        HWND scrollHost = nullptr;
+        HWND categoryButtons[kObstacleButtonCount] = {};
         DWORD threadId = 0;
         bool layoutApplied = false;
     };
@@ -69,6 +72,16 @@ namespace
         bool pressed = false;
     };
 
+    struct ScrollHostState
+    {
+        HWND buttons[kObstacleButtonCount] = {};
+        int buttonX[kObstacleButtonCount] = {};
+        int buttonY[kObstacleButtonCount] = {};
+        int ruleY[kObstacleCategoryCount - 1] = {};
+        int contentHeight = 0;
+        int scrollPosition = 0;
+    };
+
     VariantPanel s_panels[8] = {};
     CRITICAL_SECTION s_panelLock = {};
     bool s_panelLockInitialized = false;
@@ -76,6 +89,7 @@ namespace
     HHOOK s_getMessageHook = nullptr;
     DWORD s_getMessageHookThreadId = 0;
     ATOM s_categoryButtonClass = 0;
+    ATOM s_scrollHostClass = 0;
     ATOM s_placeOverlayClass = 0;
     BYTE s_updateCaptureOriginal[5] = {};
     volatile DWORD s_lastObstacleUiContext = 0;
@@ -84,11 +98,8 @@ namespace
     DWORD s_lastLoggedMapWidth = 0;
     DWORD s_lastLoggedMapHeight = 0;
     char s_lastCategoryTraceSummary[4096] = {};
-    bool s_categoryChecked[kCategoryPlaceholderCount] =
-    {
-        true, true, true, true,
-        true, true, true, true,
-    };
+    bool s_categoryChecked[kObstacleButtonCount] = {};
+    bool s_categoryCheckedInitialized = false;
 
     using SelectCollectionFn = DWORD(__thiscall*)(void*, int);
     using TileAtFn = DWORD* (__thiscall*)(void*, int, int);
@@ -165,6 +176,40 @@ namespace
     CategoryButtonState* CategoryButtonStateFromWindow(HWND hwnd);
     PlaceOverlayState* PlaceOverlayStateFromWindow(HWND hwnd);
     void RefreshCategoryButtonsForToolbar(HWND toolbar);
+    bool RectInParent(HWND parent, HWND child, RECT& rect);
+    void RunObstacleVariantCommand(
+        HWND parent,
+        HWND sourceToolbar,
+        ObstacleGenerationFilterMode mode);
+
+    void EnsureCategoryCheckedInitialized()
+    {
+        if (s_categoryCheckedInitialized)
+            return;
+        for (int index = 0; index < kObstacleButtonCount; ++index)
+        {
+            const ObstacleButtonDefinition* definition =
+                ObstacleButtonDefinitionAt(index);
+            s_categoryChecked[index] = definition && definition->defaultSelected;
+        }
+        s_categoryCheckedInitialized = true;
+    }
+
+    void GetSelectedButtonMasks(DWORD& lowMask, DWORD& highMask)
+    {
+        EnsureCategoryCheckedInitialized();
+        lowMask = 0;
+        highMask = 0;
+        for (int index = 0; index < kObstacleButtonCount; ++index)
+        {
+            if (!s_categoryChecked[index])
+                continue;
+            if (index < 32)
+                lowMask |= 1u << index;
+            else
+                highMask |= 1u << (index - 32);
+        }
+    }
 
     void __stdcall CaptureObstacleUiContext(DWORD context)
     {
@@ -486,25 +531,28 @@ namespace
 
     bool CategoryAppliesToPaintedTerrain(int index, const CategoryEnablement& enablement)
     {
-        return !enablement.hasPaintedCells ||
-            (index >= 0 &&
-                index < 32 &&
-                (enablement.terrainMask & (1u << index)) != 0);
+        if (!enablement.hasPaintedCells)
+            return true;
+        const ObstacleButtonDefinition* definition =
+            ObstacleButtonDefinitionAt(index);
+        return definition &&
+            (enablement.terrainMask & definition->terrainMask) != 0;
     }
 
     bool CategoryCanContributeToGeneration(int index, const CategoryEnablement& enablement)
     {
+        const ObstacleButtonDefinition* definition =
+            ObstacleButtonDefinitionAt(index);
         return enablement.hasPaintedCells &&
-            index >= 0 &&
-            index < 32 &&
-            (enablement.terrainMask & (1u << index)) != 0 &&
-            index < kCategoryPlaceholderCount &&
+            definition &&
+            (enablement.terrainMask & definition->terrainMask) != 0 &&
             s_categoryChecked[index];
     }
 
     bool AnyCheckedApplicableCategory(const CategoryEnablement& enablement)
     {
-        for (int index = 0; index < kCategoryPlaceholderCount; ++index)
+        EnsureCategoryCheckedInitialized();
+        for (int index = 0; index < kObstacleButtonCount; ++index)
         {
             if (CategoryCanContributeToGeneration(index, enablement))
                 return true;
@@ -572,6 +620,32 @@ namespace
     {
         if (!panel.layoutApplied || !panel.sourceToolbar)
             return;
+
+        if (panel.scrollHost && IsWindow(panel.scrollHost))
+        {
+            RECT hostRect = {};
+            RECT parentRect = {};
+            GetClientRect(panel.parent, &parentRect);
+            if (RectInParent(panel.parent, panel.scrollHost, hostRect))
+            {
+                const int width = parentRect.right - hostRect.left - 6;
+                const int height = parentRect.bottom - hostRect.top - 6;
+                if (width <= 0 || height <= 0)
+                    return;
+                if (hostRect.right - hostRect.left != width ||
+                    hostRect.bottom - hostRect.top != height)
+                {
+                    SetWindowPos(
+                        panel.scrollHost,
+                        nullptr,
+                        hostRect.left,
+                        hostRect.top,
+                        width,
+                        height,
+                        SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+        }
 
         const CategoryEnablement enablement = GetCategoryEnablement(panel.sourceToolbar);
         for (HWND button : panel.categoryButtons)
@@ -1089,7 +1163,7 @@ namespace
                 if (state->pressed && PtInRect(&rect, point))
                 {
                     state->checked = !state->checked;
-                    if (state->index >= 0 && state->index < kCategoryPlaceholderCount)
+                    if (state->index >= 0 && state->index < kObstacleButtonCount)
                         s_categoryChecked[state->index] = state->checked;
                     RefreshCategoryButtonsForToolbar(state->sourceToolbar);
                 }
@@ -1171,6 +1245,19 @@ namespace
             }
             return 0;
         }
+        case WM_MOUSEWHEEL:
+        {
+            CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
+            if (state)
+            {
+                state->mouseInside = false;
+                state->hot = false;
+                KillTimer(hwnd, kCategoryPreviewTimerId);
+                HideObstaclePreview(hwnd);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return SendMessageA(GetParent(hwnd), message, wParam, lParam);
+        }
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_LBUTTONDOWN:
@@ -1200,11 +1287,10 @@ namespace
                 InvalidateRect(hwnd, nullptr, FALSE);
                 if (shouldRun)
                 {
-                    SendMessageA(
+                    RunObstacleVariantCommand(
                         state->parent,
-                        WM_COMMAND,
-                        MAKEWPARAM(kVanillaPlaceObstaclesCommand, 0),
-                        reinterpret_cast<LPARAM>(state->sourceToolbar));
+                        state->sourceToolbar,
+                        ObstacleGenerationFilterMode::ButtonSelection);
                     RefreshCategoryButtonsForToolbar(state->sourceToolbar);
                 }
             }
@@ -1235,6 +1321,175 @@ namespace
         }
 
         return DefWindowProcA(hwnd, message, wParam, lParam);
+    }
+
+    ScrollHostState* ScrollHostStateFromWindow(HWND hwnd)
+    {
+        return reinterpret_cast<ScrollHostState*>(GetWindowLongPtrA(hwnd, GWLP_USERDATA));
+    }
+
+    void LayoutScrollHost(HWND hwnd, ScrollHostState& state)
+    {
+        RECT client = {};
+        GetClientRect(hwnd, &client);
+        const int page = client.bottom - client.top;
+        const int maximum = state.contentHeight > page ? state.contentHeight - page : 0;
+        if (state.scrollPosition > maximum)
+            state.scrollPosition = maximum;
+        if (state.scrollPosition < 0)
+            state.scrollPosition = 0;
+
+        SCROLLINFO info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+        info.nMin = 0;
+        info.nMax = state.contentHeight > 0 ? state.contentHeight - 1 : 0;
+        info.nPage = page > 0 ? static_cast<UINT>(page) : 0;
+        info.nPos = state.scrollPosition;
+        SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
+
+        for (int index = 0; index < kObstacleButtonCount; ++index)
+        {
+            if (!state.buttons[index])
+                continue;
+            SetWindowPos(
+                state.buttons[index],
+                nullptr,
+                state.buttonX[index],
+                state.buttonY[index] - state.scrollPosition,
+                kCategoryButtonExtent,
+                kCategoryButtonExtent,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        InvalidateRect(hwnd, nullptr, TRUE);
+    }
+
+    void ScrollHostTo(HWND hwnd, int position)
+    {
+        ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+        if (!state || state->scrollPosition == position)
+            return;
+        state->scrollPosition = position;
+        LayoutScrollHost(hwnd, *state);
+    }
+
+    LRESULT CALLBACK ScrollHostWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        switch (message)
+        {
+        case WM_NCCREATE:
+        {
+            CREATESTRUCTA* create = reinterpret_cast<CREATESTRUCTA*>(lParam);
+            SetWindowLongPtrA(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+            return TRUE;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_SIZE:
+        {
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (state)
+                LayoutScrollHost(hwnd, *state);
+            return 0;
+        }
+        case WM_VSCROLL:
+        {
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (!state)
+                return 0;
+            RECT client = {};
+            GetClientRect(hwnd, &client);
+            int position = state->scrollPosition;
+            switch (LOWORD(wParam))
+            {
+            case SB_LINEUP: position -= kScrollWheelStep; break;
+            case SB_LINEDOWN: position += kScrollWheelStep; break;
+            case SB_PAGEUP: position -= client.bottom - client.top; break;
+            case SB_PAGEDOWN: position += client.bottom - client.top; break;
+            case SB_THUMBPOSITION:
+            case SB_THUMBTRACK:
+            {
+                SCROLLINFO info = {};
+                info.cbSize = sizeof(info);
+                info.fMask = SIF_TRACKPOS;
+                GetScrollInfo(hwnd, SB_VERT, &info);
+                position = info.nTrackPos;
+                break;
+            }
+            case SB_TOP: position = 0; break;
+            case SB_BOTTOM: position = state->contentHeight; break;
+            default: return 0;
+            }
+            ScrollHostTo(hwnd, position);
+            return 0;
+        }
+        case WM_MOUSEWHEEL:
+        {
+            HideObstaclePreview(nullptr);
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (state)
+            {
+                const int notches = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+                ScrollHostTo(hwnd, state->scrollPosition - notches * kScrollWheelStep * 3);
+            }
+            return 0;
+        }
+        case WM_PAINT:
+        {
+            PAINTSTRUCT paint = {};
+            HDC hdc = BeginPaint(hwnd, &paint);
+            RECT client = {};
+            GetClientRect(hwnd, &client);
+            FillRect(hdc, &client, reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1));
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (state)
+            {
+                HPEN rule = CreatePen(PS_SOLID, 1, RGB(192, 192, 192));
+                HGDIOBJ oldPen = SelectObject(hdc, rule);
+                for (int index = 0; index < kObstacleCategoryCount - 1; ++index)
+                {
+                    const int y = state->ruleY[index] - state->scrollPosition;
+                    MoveToEx(hdc, 0, y, nullptr);
+                    LineTo(hdc, client.right, y);
+                }
+                SelectObject(hdc, oldPen);
+                DeleteObject(rule);
+            }
+            EndPaint(hwnd, &paint);
+            return 0;
+        }
+        case WM_NCDESTROY:
+        {
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
+            delete state;
+            return 0;
+        }
+        }
+        return DefWindowProcA(hwnd, message, wParam, lParam);
+    }
+
+    bool EnsureScrollHostClass()
+    {
+        if (s_scrollHostClass)
+            return true;
+
+        WNDCLASSEXA windowClass = {};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.lpfnWndProc = ScrollHostWndProc;
+        windowClass.hInstance = s_pluginModule;
+        windowClass.hCursor = LoadCursorA(nullptr, IDC_ARROW);
+        windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_BTNFACE + 1);
+        windowClass.lpszClassName = "HotaMapEdPluginObstacleScrollHost";
+        s_scrollHostClass = RegisterClassExA(&windowClass);
+        if (!s_scrollHostClass && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+        {
+            LogFormat("Obstacle variants: failed to register scroll host class, gle=%lu.", GetLastError());
+            return false;
+        }
+        if (!s_scrollHostClass)
+            s_scrollHostClass = 1;
+        return true;
     }
 
     bool EnsureCategoryButtonClass()
@@ -1285,14 +1540,89 @@ namespace
         return true;
     }
 
+    void InitializeScrollHostLayout(ScrollHostState& state)
+    {
+        int rowCounts[kObstacleCategoryCount] = {};
+        for (int index = 0; index < kObstacleButtonCount; ++index)
+        {
+            const ObstacleButtonDefinition* definition =
+                ObstacleButtonDefinitionAt(index);
+            if (definition && definition->categoryIndex < kObstacleCategoryCount)
+            {
+                const int rows = definition->row + 1;
+                if (rows > rowCounts[definition->categoryIndex])
+                    rowCounts[definition->categoryIndex] = rows;
+            }
+        }
+
+        int categoryY[kObstacleCategoryCount] = {};
+        int y = 0;
+        for (int category = 0; category < kObstacleCategoryCount; ++category)
+        {
+            categoryY[category] = y;
+            const int categoryHeight =
+                rowCounts[category] * kCategoryButtonExtent +
+                (rowCounts[category] > 0 ? rowCounts[category] - 1 : 0) * kCategoryRowGap;
+            y += categoryHeight;
+            if (category < kObstacleCategoryCount - 1)
+            {
+                state.ruleY[category] = y + kCategoryRuleOffset;
+                y += kCategoryRuleGap;
+            }
+        }
+        state.contentHeight = y;
+
+        for (int index = 0; index < kObstacleButtonCount; ++index)
+        {
+            const ObstacleButtonDefinition* definition =
+                ObstacleButtonDefinitionAt(index);
+            if (!definition || definition->categoryIndex >= kObstacleCategoryCount)
+                continue;
+            state.buttonX[index] = definition->column * kCategoryButtonExtent;
+            state.buttonY[index] =
+                categoryY[definition->categoryIndex] +
+                definition->row * (kCategoryButtonExtent + kCategoryRowGap);
+        }
+    }
+
+    HWND CreateScrollHost(HWND parent, const RECT& rect)
+    {
+        ScrollHostState* state = new (std::nothrow) ScrollHostState();
+        if (!state)
+            return nullptr;
+        InitializeScrollHostLayout(*state);
+
+        HWND hwnd = CreateWindowExA(
+            0,
+            "HotaMapEdPluginObstacleScrollHost",
+            nullptr,
+            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VSCROLL,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            parent,
+            nullptr,
+            s_pluginModule,
+            state);
+        if (!hwnd)
+        {
+            delete state;
+            return nullptr;
+        }
+        LayoutScrollHost(hwnd, *state);
+        return hwnd;
+    }
+
     HWND CreateCategoryButton(HWND parent, HWND sourceToolbar, int index, int x, int y)
     {
+        EnsureCategoryCheckedInitialized();
         CategoryButtonState* state = new (std::nothrow) CategoryButtonState();
         if (!state)
             return nullptr;
         state->sourceToolbar = sourceToolbar;
         state->index = index;
-        if (index >= 0 && index < kCategoryPlaceholderCount)
+        if (index >= 0 && index < kObstacleButtonCount)
             state->checked = s_categoryChecked[index];
 
         HWND hwnd = CreateWindowExA(
@@ -1517,7 +1847,9 @@ namespace
 
     void RunObstacleVariantCommand(HWND parent, HWND sourceToolbar, ObstacleGenerationFilterMode mode)
     {
-        if (!ObstacleThicknessTableAvailable())
+        if ((mode == ObstacleGenerationFilterMode::ThickOnly ||
+                mode == ObstacleGenerationFilterMode::ThinOnly) &&
+            !ObstacleThicknessTableAvailable())
         {
             MessageBoxA(
                 parent,
@@ -1529,10 +1861,23 @@ namespace
             return;
         }
 
+        if (mode == ObstacleGenerationFilterMode::ButtonSelection &&
+            !ObstacleButtonDataAvailable())
+        {
+            LogMessage("Obstacle variants: button metadata is unavailable; placement was not started.");
+            return;
+        }
+
         const char* modeName =
-            mode == ObstacleGenerationFilterMode::ThickOnly ? "thick" : "thin";
+            mode == ObstacleGenerationFilterMode::ThickOnly ? "thick" :
+            mode == ObstacleGenerationFilterMode::ThinOnly ? "thin" :
+            "selected-button";
         LogFormat("Obstacle variants: running %s obstacle generation.", modeName);
 
+        DWORD lowMask = 0;
+        DWORD highMask = 0;
+        GetSelectedButtonMasks(lowMask, highMask);
+        SetObstacleButtonSelection(lowMask, highMask);
         SetObstacleGenerationFilterMode(mode);
         SendMessageA(
             parent,
@@ -1608,14 +1953,59 @@ namespace
             }
             else if (message &&
                 message->message == WM_COMMAND &&
-                LOWORD(message->wParam) == kVanillaPlaceObstaclesCommand &&
-                ShouldBlockNativePlaceObstaclesCommand())
+                LOWORD(message->wParam) == kVanillaPlaceObstaclesCommand)
             {
-                message->message = WM_NULL;
-                message->wParam = 0;
-                message->lParam = 0;
-                LogMessage("Obstacle variants: blocked native Place Obstacles command because the effective category pool is empty.");
-                PostCategoryRefreshMessages();
+                VariantPanel context;
+                bool haveContext = false;
+                EnterCriticalSection(&s_panelLock);
+                for (VariantPanel& panel : s_panels)
+                {
+                    if (panel.layoutApplied &&
+                        IsWindow(panel.sourceToolbar) &&
+                        (panel.parent == message->hwnd ||
+                            panel.sourceToolbar == reinterpret_cast<HWND>(message->lParam)))
+                    {
+                        context = panel;
+                        haveContext = true;
+                        break;
+                    }
+                }
+                if (!haveContext)
+                {
+                    for (VariantPanel& panel : s_panels)
+                    {
+                        if (panel.layoutApplied &&
+                            panel.parent &&
+                            IsWindow(panel.parent) &&
+                            IsWindow(panel.sourceToolbar) &&
+                            IsWindowVisible(panel.parent))
+                        {
+                            context = panel;
+                            haveContext = true;
+                            break;
+                        }
+                    }
+                }
+                LeaveCriticalSection(&s_panelLock);
+
+                if (haveContext)
+                {
+                    message->message = WM_NULL;
+                    message->wParam = 0;
+                    message->lParam = 0;
+                    if (ShouldBlockNativePlaceObstaclesCommand())
+                    {
+                        LogMessage("Obstacle variants: blocked native Place Obstacles command because the effective button pool is empty.");
+                    }
+                    else
+                    {
+                        RunObstacleVariantCommand(
+                            context.parent,
+                            context.sourceToolbar,
+                            ObstacleGenerationFilterMode::ButtonSelection);
+                    }
+                    PostCategoryRefreshMessages();
+                }
             }
             else if (message &&
                 (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
@@ -1687,16 +2077,27 @@ namespace
             return false;
         }
 
-        constexpr int rowGap = 4;
         constexpr int sectionGap = 10;
         constexpr int labelToButtonsGap = 4;
 
+        RECT parentClient = {};
+        GetClientRect(parent, &parentClient);
         const int x = brushToolbarRect.left;
         const int labelY = brushToolbarRect.bottom + sectionGap;
         const int labelHeight = brushLabelRect.bottom - brushLabelRect.top;
-        const int labelWidth = brushToolbarRect.right - brushLabelRect.left;
+        const int labelWidth = parentClient.right - brushLabelRect.left - 6;
         const int firstRowY = labelY + labelHeight + labelToButtonsGap;
-        if (!EnsureCategoryButtonClass() || !EnsurePlaceOverlayClass())
+        RECT scrollRect =
+        {
+            x,
+            firstRowY,
+            parentClient.right - 6,
+            parentClient.bottom - 6,
+        };
+        if (scrollRect.right <= scrollRect.left || scrollRect.bottom <= scrollRect.top ||
+            !EnsureCategoryButtonClass() ||
+            !EnsurePlaceOverlayClass() ||
+            !EnsureScrollHostClass())
             return false;
 
         panel.placeOverlay = CreatePlaceOverlay(parent, toolbar, placeButtonRect);
@@ -1727,27 +2128,33 @@ namespace
                 SendMessageA(panel.categoryLabel, WM_SETFONT, reinterpret_cast<WPARAM>(brushFont), TRUE);
         }
 
-        bool createdAll = panel.categoryLabel != nullptr;
-        for (int i = 0; i < kCategoryPlaceholderCount; ++i)
+        panel.scrollHost = CreateScrollHost(parent, scrollRect);
+        bool createdAll = panel.categoryLabel != nullptr && panel.scrollHost != nullptr;
+        ScrollHostState* scrollState = panel.scrollHost
+            ? ScrollHostStateFromWindow(panel.scrollHost)
+            : nullptr;
+        for (int i = 0; i < kObstacleButtonCount; ++i)
         {
-            if (!createdAll)
+            if (!createdAll || !scrollState)
                 break;
 
-            const int row = i / kCategoryButtonsPerRow;
-            const int col = i % kCategoryButtonsPerRow;
-            const int buttonX = x + col * kCategoryButtonExtent;
-            const int buttonY = firstRowY + row * (kCategoryButtonExtent + rowGap);
-            panel.categoryButtons[i] = CreateCategoryButton(parent, toolbar, i, buttonX, buttonY);
+            panel.categoryButtons[i] = CreateCategoryButton(
+                panel.scrollHost,
+                toolbar,
+                i,
+                scrollState->buttonX[i],
+                scrollState->buttonY[i]);
             if (!panel.categoryButtons[i])
             {
                 createdAll = false;
                 break;
             }
+            scrollState->buttons[i] = panel.categoryButtons[i];
         }
 
         if (!createdAll)
         {
-            LogMessage("Obstacle variants: failed to create category placeholder buttons.");
+            LogMessage("Obstacle variants: failed to create obstacle type buttons.");
             if (panel.placeOverlay)
             {
                 DestroyWindow(panel.placeOverlay);
@@ -1758,17 +2165,17 @@ namespace
                 DestroyWindow(panel.categoryLabel);
                 panel.categoryLabel = nullptr;
             }
-            for (HWND& button : panel.categoryButtons)
+            if (panel.scrollHost)
             {
-                if (button)
-                {
-                    DestroyWindow(button);
-                    button = nullptr;
-                }
+                DestroyWindow(panel.scrollHost);
+                panel.scrollHost = nullptr;
             }
+            for (HWND& button : panel.categoryButtons)
+                button = nullptr;
             return false;
         }
 
+        LayoutScrollHost(panel.scrollHost, *scrollState);
         panel.layoutApplied = true;
         RefreshCategoryButtons(panel);
         InvalidateRect(parent, nullptr, TRUE);
@@ -1778,13 +2185,16 @@ namespace
             UpdateWindow(button);
         }
         LogFormat(
-            "Obstacle variants: created category placeholder buttons below Brush parent=%p placeOverlay=%p label=%p first=%p x=%d y=%d",
+            "Obstacle variants: created %d obstacle type buttons below Brush parent=%p placeOverlay=%p label=%p scrollHost=%p first=%p x=%d y=%d contentHeight=%d",
+            kObstacleButtonCount,
             parent,
             panel.placeOverlay,
             panel.categoryLabel,
+            panel.scrollHost,
             panel.categoryButtons[0],
             x,
-            firstRowY);
+            firstRowY,
+            scrollState->contentHeight);
         return true;
     }
 
@@ -1956,7 +2366,9 @@ namespace
 
 bool ObstacleVariantsEnabled()
 {
-    return ObstacleThicknessTableAvailable() || VariantUiEnvEnabled();
+    return ObstacleButtonDataAvailable() ||
+        ObstacleThicknessTableAvailable() ||
+        VariantUiEnvEnabled();
 }
 
 bool StartObstacleVariantUi(std::string& error)
