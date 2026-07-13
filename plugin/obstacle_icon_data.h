@@ -8,3 +8,4 @@ struct ObstacleIconData
 };
 
 const ObstacleIconData* ObstacleIconForButton(int buttonIndex, bool enabled);
+int ObstaclePreviewResourceForButton(int buttonIndex);

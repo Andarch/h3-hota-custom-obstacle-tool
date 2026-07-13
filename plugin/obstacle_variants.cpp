@@ -6,6 +6,7 @@
 #include "obstacle_classification.h"
 #include "obstacle_filter.h"
 #include "obstacle_icon_data.h"
+#include "obstacle_preview.h"
 
 #include <commctrl.h>
 #include <cstdio>
@@ -31,6 +32,9 @@ namespace
     constexpr BYTE kObstacleUpdateCaptureExpected[] = { 0x8B, 0x46, 0x64, 0x85, 0xC0 };
     constexpr DWORD kObstacleUpdateCaptureResume = 0x00484C9F;
     constexpr DWORD kCategoryRefreshTimerMs = 75;
+    constexpr UINT_PTR kCategoryRefreshTimerId = 1;
+    constexpr UINT_PTR kCategoryPreviewTimerId = 2;
+    constexpr DWORD kCategoryPreviewDelayMs = 250;
     char kPlaceOverlayTooltip[] = "Place Obstacles [Shift+O]";
 
     struct VariantPanel
@@ -51,6 +55,7 @@ namespace
         bool enabled = true;
         bool hot = false;
         bool pressed = false;
+        bool mouseInside = false;
         int index = 0;
     };
 
@@ -1004,21 +1009,39 @@ namespace
         case WM_TIMER:
         {
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state && state->index == 0)
+            if (wParam == kCategoryRefreshTimerId && state && state->index == 0)
                 RefreshCategoryButtonsForToolbar(state->sourceToolbar);
+            else if (wParam == kCategoryPreviewTimerId)
+            {
+                KillTimer(hwnd, kCategoryPreviewTimerId);
+                if (state && state->mouseInside)
+                    ShowObstaclePreview(s_pluginModule, hwnd, state->index);
+            }
             return 0;
         }
         case WM_MOUSEMOVE:
         {
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
-            if (state && state->enabled && !state->hot)
+            if (state && !state->mouseInside)
             {
-                state->hot = true;
+                state->mouseInside = true;
                 TRACKMOUSEEVENT track = {};
                 track.cbSize = sizeof(track);
                 track.dwFlags = TME_LEAVE;
                 track.hwndTrack = hwnd;
                 TrackMouseEvent(&track);
+                if (ObstaclePreviewAvailable(state->index))
+                {
+                    SetTimer(
+                        hwnd,
+                        kCategoryPreviewTimerId,
+                        kCategoryPreviewDelayMs,
+                        nullptr);
+                }
+            }
+            if (state && state->enabled && !state->hot)
+            {
+                state->hot = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
@@ -1028,8 +1051,11 @@ namespace
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
             if (state)
             {
+                state->mouseInside = false;
                 state->hot = false;
                 state->pressed = false;
+                KillTimer(hwnd, kCategoryPreviewTimerId);
+                HideObstaclePreview(hwnd);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
@@ -1041,6 +1067,8 @@ namespace
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
             if (state && state->enabled)
             {
+                KillTimer(hwnd, kCategoryPreviewTimerId);
+                HideObstaclePreview(hwnd);
                 state->pressed = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
@@ -1076,13 +1104,17 @@ namespace
             if (state)
             {
                 state->pressed = false;
+                KillTimer(hwnd, kCategoryPreviewTimerId);
+                HideObstaclePreview(hwnd);
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
         }
         case WM_NCDESTROY:
         {
-            KillTimer(hwnd, 1);
+            KillTimer(hwnd, kCategoryRefreshTimerId);
+            KillTimer(hwnd, kCategoryPreviewTimerId);
+            HideObstaclePreview(hwnd);
             CategoryButtonState* state = CategoryButtonStateFromWindow(hwnd);
             SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
             delete state;
@@ -1291,7 +1323,7 @@ namespace
             kCategoryButtonExtent,
             SWP_SHOWWINDOW | SWP_NOACTIVATE);
         if (index == 0)
-            SetTimer(hwnd, 1, kCategoryRefreshTimerMs, nullptr);
+            SetTimer(hwnd, kCategoryRefreshTimerId, kCategoryRefreshTimerMs, nullptr);
         InvalidateRect(hwnd, nullptr, FALSE);
         UpdateWindow(hwnd);
         return hwnd;

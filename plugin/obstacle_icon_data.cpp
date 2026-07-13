@@ -900,6 +900,19 @@ namespace
         { 1, { 24, 24, kEnabledButton02 }, { 24, 24, kDisabledButton02 } },
         { 2, { 24, 24, kEnabledButton03 }, { 24, 24, kDisabledButton03 } },
     };
+
+    struct ObstaclePreviewResource
+    {
+        int buttonIndex;
+        int resourceId;
+    };
+
+    constexpr ObstaclePreviewResource kObstaclePreviews[] =
+    {
+        { 0, 5001 },
+        { 1, 5002 },
+        { 2, 5003 },
+    };
 }
 
 const ObstacleIconData* ObstacleIconForButton(int buttonIndex, bool enabled)
@@ -910,4 +923,14 @@ const ObstacleIconData* ObstacleIconForButton(int buttonIndex, bool enabled)
             return enabled ? &pair.enabled : &pair.disabled;
     }
     return nullptr;
+}
+
+int ObstaclePreviewResourceForButton(int buttonIndex)
+{
+    for (const ObstaclePreviewResource& preview : kObstaclePreviews)
+    {
+        if (preview.buttonIndex == buttonIndex)
+            return preview.resourceId;
+    }
+    return -1;
 }

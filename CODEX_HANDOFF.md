@@ -16,6 +16,55 @@ Do not begin by recreating the entire map editor. A standalone map library or
 tool may become useful later, but the official editor plugin is currently the
 lowest-cost path for features that need HotA's native editor behavior.
 
+## Next Session Handoff
+
+The basic category UI foundation is implemented and manually accepted. The
+next task is to replace the eight temporary terrain-mapped placeholder buttons
+with the complete category/button model from:
+
+`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx`
+
+Read the workbook's `Obstacles`, `Button Layout`, and `Button Mapping` tabs
+before generating code. The workbook currently defines 60 buttons. Preserve
+its four-column layout, intentional row wrapping, default-selected values, and
+terrain applicability.
+
+UI direction for the full implementation:
+
+- keep the native Brush section first and the plugin-owned `Obstacle Types`
+  section below it;
+- do not add text labels such as `Raised Ground`, `Trees`, or the other category
+  names because the `Obstacle Types` heading already explains the section;
+- preserve the workbook's visual grouping, potentially with thin horizontal
+  rules between category groups;
+- provide vertical scrolling because all 60 buttons will not fit in the side
+  panel at once;
+- keep four buttons per row unless the user explicitly changes the layout;
+- retain checked state while buttons are disabled by terrain applicability and
+  across paint sessions/tool switches;
+- keep the plugin-owned Place Obstacles overlay and keyboard-command gating.
+
+Current accepted UI behavior and assets:
+
+- the plugin-owned Place Obstacles overlay visually matches the native flat
+  toolbar button and has the native tooltip;
+- the Brush section no longer jumps when plugin controls appear;
+- category enablement uses obstacle-paint collection `0`, state `2`, and the
+  authoritative runtime map dimensions documented below;
+- the first three placeholder buttons use numbered 24x24 enabled/disabled RGBA
+  PNGs under `plugin/resources/obstacle_icons`;
+- the same three buttons have 96x96 RGBA hover previews with alpha and
+  semi-transparent shadows under the `preview` subfolder;
+- previews appear after 250 ms in a shared 104x104 non-activating popup, work
+  for enabled and disabled buttons, and composite against a white background;
+- `tools/generate_obstacle_icons.py` embeds the 24x24 pixels in generated C++
+  and the compressed preview PNGs as generated `RCDATA` resources.
+
+Before expanding to all 60 buttons, generate the button metadata from the
+workbook rather than hand-maintaining parallel tables. Keep icon/preview lookup
+by the existing two-digit button prefix so additional assets can be added
+incrementally.
+
 ## User Goals And Decisions
 
 - Keep the successful garrison object-limit increase.
