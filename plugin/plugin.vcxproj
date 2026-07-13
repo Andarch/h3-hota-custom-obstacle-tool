@@ -60,7 +60,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)HotaMapEdPlugin.plugin.pdb</ProgramDatabaseFile>
-      <AdditionalDependencies>comctl32.lib;ole32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -81,7 +81,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)HotaMapEdPlugin.plugin.pdb</ProgramDatabaseFile>
-      <AdditionalDependencies>comctl32.lib;ole32.lib;windowscodecs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -90,9 +90,9 @@
     <ClInclude Include="objlimits.h" />
     <ClInclude Include="obstacle_button_data.h" />
     <ClInclude Include="obstacle_classification.h" />
+    <ClInclude Include="obstacle_def_images.h" />
     <ClInclude Include="obstacle_diagnostics.h" />
     <ClInclude Include="obstacle_filter.h" />
-    <ClInclude Include="obstacle_icon_data.h" />
     <ClInclude Include="obstacle_preview.h" />
     <ClInclude Include="obstacle_variants.h" />
     <ClInclude Include="pch.h" />
@@ -106,9 +106,9 @@
     <ClCompile Include="objlimits.cpp" />
     <ClCompile Include="obstacle_button_data.cpp" />
     <ClCompile Include="obstacle_classification.cpp" />
+    <ClCompile Include="obstacle_def_images.cpp" />
     <ClCompile Include="obstacle_diagnostics.cpp" />
     <ClCompile Include="obstacle_filter.cpp" />
-    <ClCompile Include="obstacle_icon_data.cpp" />
     <ClCompile Include="obstacle_preview.cpp" />
     <ClCompile Include="obstacle_variants.cpp" />
     <ClCompile Include="pch.cpp">
@@ -116,9 +116,6 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="target_profile.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="obstacle_preview_resources.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

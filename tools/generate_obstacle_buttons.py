@@ -42,6 +42,8 @@ class ButtonDefinition:
     category_index: int
     row: int
     column: int
+    icon_def: str | None
+    preview_defs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -169,6 +171,19 @@ def normalize_def_name(value: str) -> str:
     return value.strip().lower()
 
 
+def parse_optional_def_name(value: str, location: str) -> str | None:
+    normalized = normalize_def_name(value)
+    if normalized in {"", "n/a"}:
+        return None
+    try:
+        normalized.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{location}: DEF name must be ASCII") from exc
+    if not normalized.endswith(".def"):
+        raise ValueError(f"{location}: expected a .def name or n/a, got {value!r}")
+    return normalized
+
+
 def fnv1a_32(value: str) -> int:
     result = 0x811C9DC5
     for byte in value.encode("ascii"):
@@ -181,11 +196,27 @@ def cpp_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def parse_mapping(rows: list[list[str]]) -> tuple[list[str], dict[str, tuple[str, bool, int]]]:
-    required = ["Category", "Button", "Selected By Default", *TERRAIN_BITS.keys()]
+def parse_mapping(
+    rows: list[list[str]],
+) -> tuple[
+    list[str],
+    dict[str, tuple[str, bool, int, str | None, tuple[str, ...]]],
+]:
+    preview_columns = [f"Preview Def {index}" for index in range(1, 5)]
+    required = [
+        "Category",
+        "Button",
+        "Selected By Default",
+        *TERRAIN_BITS.keys(),
+        "Icon Def",
+        *preview_columns,
+    ]
     headers = require_headers(rows, required, "Button Mapping")
     categories: list[str] = []
-    mapping: dict[str, tuple[str, bool, int]] = {}
+    mapping: dict[
+        str,
+        tuple[str, bool, int, str | None, tuple[str, ...]],
+    ] = {}
     for row_number, row in enumerate(rows[1:], start=2):
         button = row_value(row, headers, "Button")
         if not button:
@@ -205,6 +236,30 @@ def parse_mapping(rows: list[list[str]]) -> tuple[list[str], dict[str, tuple[str
         if terrain_mask & (1 << TERRAIN_BITS["RCK"]):
             raise ValueError(f"Button Mapping {button}: Rock applicability is not supported")
 
+        icon_def = parse_optional_def_name(
+            row_value(row, headers, "Icon Def"),
+            f"Button Mapping {button} Icon Def",
+        )
+        preview_defs: list[str] = []
+        found_unused_preview = False
+        for column in preview_columns:
+            preview_def = parse_optional_def_name(
+                row_value(row, headers, column),
+                f"Button Mapping {button} {column}",
+            )
+            if preview_def is None:
+                found_unused_preview = True
+            elif found_unused_preview:
+                raise ValueError(
+                    f"Button Mapping {button}: preview DEFs must be contiguous from Preview Def 1"
+                )
+            else:
+                preview_defs.append(preview_def)
+        if bool(icon_def) != bool(preview_defs):
+            raise ValueError(
+                f"Button Mapping {button}: Icon Def and Preview Def 1 must either both be set or both be unused"
+            )
+
         mapping[button] = (
             category,
             parse_bool(
@@ -212,6 +267,8 @@ def parse_mapping(rows: list[list[str]]) -> tuple[list[str], dict[str, tuple[str
                 f"Button Mapping {button} Selected By Default",
             ),
             terrain_mask,
+            icon_def,
+            tuple(preview_defs),
         )
     return categories, mapping
 
@@ -219,7 +276,10 @@ def parse_mapping(rows: list[list[str]]) -> tuple[list[str], dict[str, tuple[str
 def parse_layout(
     rows: list[list[str]],
     categories: list[str],
-    mapping: dict[str, tuple[str, bool, int]],
+    mapping: dict[
+        str,
+        tuple[str, bool, int, str | None, tuple[str, ...]],
+    ],
 ) -> tuple[list[ButtonDefinition], list[str]]:
     category_lookup = set(categories)
     layout_categories: list[str] = []
@@ -250,7 +310,13 @@ def parse_layout(
                 continue
             if button not in mapping:
                 raise ValueError(f"Button Layout row {row_number}: unknown button {button!r}")
-            mapped_category, default_selected, terrain_mask = mapping[button]
+            (
+                mapped_category,
+                default_selected,
+                terrain_mask,
+                icon_def,
+                preview_defs,
+            ) = mapping[button]
             if mapped_category != current_category:
                 raise ValueError(
                     f"Button Layout row {row_number}: {button!r} is under {current_category!r} "
@@ -267,6 +333,8 @@ def parse_layout(
                     category_index=layout_categories.index(current_category),
                     row=category_row,
                     column=column,
+                    icon_def=icon_def,
+                    preview_defs=preview_defs,
                 )
             )
         category_row += 1
@@ -405,6 +473,30 @@ def parse_obstacles(
     )
 
 
+def validate_button_visual_defs(
+    buttons: list[ButtonDefinition],
+    metadata: list[DefMetadata],
+) -> None:
+    defs_by_button: dict[int, set[str]] = {}
+    for item in metadata:
+        defs_by_button.setdefault(item.button_index, set()).add(item.def_name)
+
+    for button_index, button in enumerate(buttons):
+        available_defs = defs_by_button.get(button_index, set())
+        selections = []
+        if button.icon_def:
+            selections.append(("Icon Def", button.icon_def))
+        selections.extend(
+            (f"Preview Def {index}", def_name)
+            for index, def_name in enumerate(button.preview_defs, start=1)
+        )
+        for column, def_name in selections:
+            if def_name not in available_defs:
+                raise ValueError(
+                    f"Button Mapping {button.name} {column}: {def_name!r} is not mapped to this button on Obstacles"
+                )
+
+
 def render_header(button_count: int, category_count: int) -> str:
     return textwrap.dedent(
         f"""\
@@ -426,6 +518,9 @@ def render_header(button_count: int, category_count: int) -> str:
             BYTE row;
             BYTE column;
             bool defaultSelected;
+            const char* iconDefName;
+            const char* previewDefNames[4];
+            BYTE previewDefCount;
         }};
 
         struct ObstacleTemplateOverride
@@ -463,12 +558,20 @@ def render_source(
     if len(borrow_hashes) > 0x7F:
         raise ValueError("too many borrowed RandTrn sources for the runtime index")
     borrow_indexes = {value: index for index, value in enumerate(borrow_hashes)}
-    button_rows = [
-        f"        {{ {cpp_string(item.name)}, 0x{item.terrain_mask:08X}u, "
-        f"{item.category_index}, {item.row}, {item.column}, "
-        f"{'true' if item.default_selected else 'false'} }},"
-        for item in buttons
-    ]
+    button_rows = []
+    for item in buttons:
+        preview_defs = list(item.preview_defs) + [None] * (4 - len(item.preview_defs))
+        preview_initializer = ", ".join(
+            cpp_string(def_name) if def_name else "nullptr"
+            for def_name in preview_defs
+        )
+        button_rows.append(
+            f"        {{ {cpp_string(item.name)}, 0x{item.terrain_mask:08X}u, "
+            f"{item.category_index}, {item.row}, {item.column}, "
+            f"{'true' if item.default_selected else 'false'}, "
+            f"{cpp_string(item.icon_def) if item.icon_def else 'nullptr'}, "
+            f"{{ {preview_initializer} }}, {len(item.preview_defs)} }},"
+        )
     metadata_rows = [
         f"        {{ 0x{item.def_hash:08X}u, {item.button_index}, "
         f"{borrow_indexes[item.borrow_source_hash] if item.borrow_source_hash is not None else -1} }},"
@@ -722,6 +825,7 @@ def main() -> int:
     metadata, overrides = parse_obstacles(
         sheets["Obstacles"], button_indexes, edobjts_rows
     )
+    validate_button_visual_defs(buttons, metadata)
 
     args.header.write_text(
         render_header(len(buttons), len(layout_categories)), encoding="ascii", newline="\n"

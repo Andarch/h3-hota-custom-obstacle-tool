@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "logger.h"
 #include "objlimits.h"
+#include "obstacle_def_images.h"
 #include "obstacle_diagnostics.h"
 #include "obstacle_filter.h"
 #include "obstacle_variants.h"
@@ -81,6 +82,13 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
     if (ObstacleVariantsEnabled())
     {
         LogMessage("Obstacle variant UI requested.");
+        if (!InitializeObstacleDefImages(*profile, error))
+        {
+            LogFormat("Obstacle DEF image initialization failed: %s", error.c_str());
+            s_initializeResult = kPluginInitializeHookFailed;
+            InterlockedExchange(&s_initializeState, 3);
+            return s_initializeResult;
+        }
         if (!StartObstacleVariantUi(error))
         {
             LogFormat("Obstacle variant UI startup failed: %s", error.c_str());

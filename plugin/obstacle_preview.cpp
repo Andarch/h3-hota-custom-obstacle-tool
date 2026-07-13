@@ -1,18 +1,13 @@
 #include "pch.h"
 #include "obstacle_preview.h"
 
-#include "logger.h"
 #include "obstacle_button_data.h"
-#include "obstacle_icon_data.h"
+#include "obstacle_def_images.h"
 
-#include <objbase.h>
 #include <vector>
-#include <wincodec.h>
-#include <wrl/client.h>
 
 namespace
 {
-    constexpr int kPreviewButtonLimit = 64;
     constexpr int kPreviewImageExtent = 160;
     constexpr int kPreviewBorderExtent = 2;
     constexpr int kPreviewImageAreaExtent =
@@ -24,14 +19,6 @@ namespace
     constexpr int kPreviewWindowHeight = kPreviewImageAreaExtent + kPreviewCaptionExtent;
     constexpr int kPreviewAnchorGap = 8;
 
-    struct PreviewCacheEntry
-    {
-        bool attempted = false;
-        bool loaded = false;
-        std::vector<BYTE> bgra;
-    };
-
-    PreviewCacheEntry s_previewCache[kPreviewButtonLimit] = {};
     HMODULE s_pluginModule = nullptr;
     ATOM s_previewWindowClass = 0;
     HWND s_previewWindow = nullptr;
@@ -43,119 +30,7 @@ namespace
         return ObstacleButtonName(buttonIndex);
     }
 
-    bool DecodePreviewResource(int resourceId, std::vector<BYTE>& bgra)
-    {
-        HRSRC resource = FindResourceA(
-            s_pluginModule,
-            MAKEINTRESOURCEA(resourceId),
-            RT_RCDATA);
-        if (!resource)
-            return false;
-
-        const DWORD resourceSize = SizeofResource(s_pluginModule, resource);
-        HGLOBAL loadedResource = LoadResource(s_pluginModule, resource);
-        BYTE* resourceBytes = static_cast<BYTE*>(LockResource(loadedResource));
-        if (!resourceSize || !loadedResource || !resourceBytes)
-            return false;
-
-        const HRESULT initializeResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        const bool uninitialize = SUCCEEDED(initializeResult);
-        if (FAILED(initializeResult) && initializeResult != RPC_E_CHANGED_MODE)
-            return false;
-
-        bool decoded = false;
-        {
-            using Microsoft::WRL::ComPtr;
-            ComPtr<IWICImagingFactory> factory;
-            ComPtr<IWICStream> stream;
-            ComPtr<IWICBitmapDecoder> decoder;
-            ComPtr<IWICBitmapFrameDecode> frame;
-            ComPtr<IWICFormatConverter> converter;
-
-            HRESULT result = CoCreateInstance(
-                CLSID_WICImagingFactory,
-                nullptr,
-                CLSCTX_INPROC_SERVER,
-                IID_PPV_ARGS(factory.GetAddressOf()));
-            if (SUCCEEDED(result))
-                result = factory->CreateStream(stream.GetAddressOf());
-            if (SUCCEEDED(result))
-                result = stream->InitializeFromMemory(resourceBytes, resourceSize);
-            if (SUCCEEDED(result))
-            {
-                result = factory->CreateDecoderFromStream(
-                    stream.Get(),
-                    nullptr,
-                    WICDecodeMetadataCacheOnLoad,
-                    decoder.GetAddressOf());
-            }
-            if (SUCCEEDED(result))
-                result = decoder->GetFrame(0, frame.GetAddressOf());
-
-            UINT width = 0;
-            UINT height = 0;
-            if (SUCCEEDED(result))
-                result = frame->GetSize(&width, &height);
-            if (SUCCEEDED(result) &&
-                (width != kPreviewImageExtent || height != kPreviewImageExtent))
-                result = E_INVALIDARG;
-
-            if (SUCCEEDED(result))
-                result = factory->CreateFormatConverter(converter.GetAddressOf());
-            if (SUCCEEDED(result))
-            {
-                result = converter->Initialize(
-                    frame.Get(),
-                    GUID_WICPixelFormat32bppBGRA,
-                    WICBitmapDitherTypeNone,
-                    nullptr,
-                    0.0,
-                    WICBitmapPaletteTypeCustom);
-            }
-            if (SUCCEEDED(result))
-            {
-                const UINT stride = kPreviewImageExtent * 4;
-                bgra.resize(stride * kPreviewImageExtent);
-                result = converter->CopyPixels(
-                    nullptr,
-                    stride,
-                    static_cast<UINT>(bgra.size()),
-                    bgra.data());
-            }
-            decoded = SUCCEEDED(result);
-        }
-
-        if (uninitialize)
-            CoUninitialize();
-        return decoded;
-    }
-
-    PreviewCacheEntry* PreviewForButton(int buttonIndex)
-    {
-        if (buttonIndex < 0 || buttonIndex >= kPreviewButtonLimit)
-            return nullptr;
-
-        const int resourceId = ObstaclePreviewResourceForButton(buttonIndex);
-        if (resourceId < 0)
-            return nullptr;
-
-        PreviewCacheEntry& cache = s_previewCache[buttonIndex];
-        if (!cache.attempted)
-        {
-            cache.attempted = true;
-            cache.loaded = DecodePreviewResource(resourceId, cache.bgra);
-            if (!cache.loaded)
-            {
-                LogFormat(
-                    "Obstacle variants: failed to decode preview resource %d for category button %d.",
-                    resourceId,
-                    buttonIndex + 1);
-            }
-        }
-        return cache.loaded ? &cache : nullptr;
-    }
-
-    bool DrawPreviewPixels(HDC hdc, const PreviewCacheEntry& preview, COLORREF background)
+    bool DrawPreviewPixels(HDC hdc, const ObstacleRenderedImage& preview, COLORREF background)
     {
         if (preview.bgra.size() != kPreviewImageExtent * kPreviewImageExtent * 4)
             return false;
@@ -215,7 +90,8 @@ namespace
         FillRect(hdc, &backgroundRect, background);
         DeleteObject(background);
 
-        PreviewCacheEntry* preview = PreviewForButton(s_previewButtonIndex);
+        const ObstacleRenderedImage* preview =
+            ObstacleDefPreviewForButton(s_previewButtonIndex);
         if (preview)
             DrawPreviewPixels(hdc, *preview, backgroundColor);
         else

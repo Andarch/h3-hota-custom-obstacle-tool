@@ -5,8 +5,8 @@
 #include "hook.h"
 #include "obstacle_button_data.h"
 #include "obstacle_classification.h"
+#include "obstacle_def_images.h"
 #include "obstacle_filter.h"
-#include "obstacle_icon_data.h"
 #include "obstacle_preview.h"
 
 #include <commctrl.h>
@@ -945,11 +945,12 @@ namespace
     bool DrawObstacleIcon(
         HDC hdc,
         const RECT& targetRect,
-        const ObstacleIconData* icon,
+        const ObstacleRenderedImage* icon,
         COLORREF background)
     {
         constexpr int kIconExtent = 24;
-        if (!icon || !icon->rgba || icon->width != kIconExtent || icon->height != kIconExtent)
+        if (!icon || icon->width != kIconExtent || icon->height != kIconExtent ||
+            icon->bgra.size() != kIconExtent * kIconExtent * 4)
             return false;
 
         BYTE pixels[kIconExtent * kIconExtent * 4] = {};
@@ -960,14 +961,14 @@ namespace
         for (int pixel = 0; pixel < kIconExtent * kIconExtent; ++pixel)
         {
             const unsigned int sourceOffset = pixel * 4;
-            const unsigned int alpha = icon->rgba[sourceOffset + 3];
+            const unsigned int alpha = icon->bgra[sourceOffset + 3];
             const unsigned int inverseAlpha = 255 - alpha;
             pixels[sourceOffset + 0] = static_cast<BYTE>(
-                (icon->rgba[sourceOffset + 2] * alpha + backgroundBlue * inverseAlpha + 127) / 255);
+                (icon->bgra[sourceOffset] * alpha + backgroundBlue * inverseAlpha + 127) / 255);
             pixels[sourceOffset + 1] = static_cast<BYTE>(
-                (icon->rgba[sourceOffset + 1] * alpha + backgroundGreen * inverseAlpha + 127) / 255);
+                (icon->bgra[sourceOffset + 1] * alpha + backgroundGreen * inverseAlpha + 127) / 255);
             pixels[sourceOffset + 2] = static_cast<BYTE>(
-                (icon->rgba[sourceOffset + 0] * alpha + backgroundRed * inverseAlpha + 127) / 255);
+                (icon->bgra[sourceOffset + 2] * alpha + backgroundRed * inverseAlpha + 127) / 255);
         }
 
         BITMAPINFO bitmapInfo = {};
@@ -1042,7 +1043,7 @@ namespace
             (rect.bottom + glyph) / 2,
         };
 
-        const ObstacleIconData* icon = ObstacleIconForButton(
+        const ObstacleRenderedImage* icon = ObstacleDefIconForButton(
             state ? state->index : -1,
             enabled);
         if (DrawObstacleIcon(hdc, glyphRect, icon, buttonBackground))

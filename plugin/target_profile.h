@@ -23,11 +23,18 @@ struct ObjectLimitTargetProfile
     DWORD placeDeny;
 };
 
+struct EditorResourceTargetProfile
+{
+    DWORD findArchive;
+    DWORD readSelectedEntry;
+};
+
 struct TargetProfile
 {
     const char* name;
     const char* executableSha256;
     ObjectLimitTargetProfile objectLimits;
+    EditorResourceTargetProfile editorResources;
 };
 
 bool ComputeCurrentExecutableSha256(char output[65]);

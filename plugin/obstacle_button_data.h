@@ -16,6 +16,9 @@ struct ObstacleButtonDefinition
     BYTE row;
     BYTE column;
     bool defaultSelected;
+    const char* iconDefName;
+    const char* previewDefNames[4];
+    BYTE previewDefCount;
 };
 
 struct ObstacleTemplateOverride

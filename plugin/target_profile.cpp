@@ -27,6 +27,10 @@ namespace
             0x00426B27,
             0x00426AFF,
         },
+        {
+            0x004DB240,
+            0x004E4960,
+        },
     };
 
     bool HashFile(const char* path, BYTE output[32])

@@ -43,22 +43,27 @@ Implemented UI behavior:
   enabled state, and survives side-panel recreation/tool switches;
 - painted-terrain applicability comes from `Button Mapping`; Rock remains
   unsupported;
-- all 60 hover popups use the workbook button name. Buttons without supplied
-  icon/preview art use the existing square placeholder;
+- all 60 hover popups use the workbook button name. Buttons without workbook
+  DEF visual selections use the existing square placeholder;
 - only DEFs mapped to checked buttons pass the final native candidate hook;
 - selected plugin/custom rows are replaced or appended in a temporary
   per-generation `objects.txt` overlay;
 - explicit DEF-name RandTrn borrowing is generalized from the workbook.
   `self` and `native bucket` leave HotA's native row assignment unchanged.
 
-The first three buttons retain the accepted 24x24 icons and 160x160 previews.
-The popup remains 164x187: a 164x164 image area with two-pixel border and a
-fixed 23-pixel `#f0f0f0` caption area separated by a two-pixel divider.
+The first eight buttons currently render their icon and preview from the DEFs
+selected in `Button Mapping`. Icons are generated at 24x24; previews are
+generated at 160x160. The popup remains 164x187: a 164x164 image area with a
+two-pixel border and a fixed 23-pixel `#f0f0f0` caption area separated by a
+two-pixel divider. The prior embedded-PNG implementation was checkpointed in
+commit `8624e7b` and then removed.
 
 Verification on 2026-07-13:
 
 - workbook generation passed with the counts above;
-- Debug Win32 and Release Win32 built successfully;
+- clean sequential Debug Win32 and Release Win32 rebuilds passed after the
+  embedded PNG pipeline was removed; the resulting DLLs are 777,728 bytes and
+  131,584 bytes respectively;
 - the editor started through the Debug launcher and all expected hook bytes,
   executable hashes, and metadata availability checks passed;
 - user runtime testing confirmed all buttons paint immediately, scrollbar-thumb
@@ -66,6 +71,10 @@ Verification on 2026-07-13:
   buttons;
 - with `Sand Mountains` unchecked, generation placed only `Sand Dunes`,
   runtime-verifying checked-button candidate filtering;
+- the first eight workbook-selected DEFs rendered as button icons and hover
+  previews from both `H3sprite.lod` and keyed `HotA.lod` resources;
+- user visual testing accepted the runtime-rendered size, crop, shadows, and
+  corrected low-palette black details;
 - generalized RandTrn borrowing still needs an isolated runtime test.
 
 ## User Goals And Decisions
@@ -1131,13 +1140,32 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   behavior: all buttons are enabled before painting; painting gates them by
   terrain; user-checked state survives generating obstacles, undo, clearing,
   and returning to the no-painted-area state.
-- User-created category icon PNGs live under
-  `plugin/resources/obstacle_icons/{enabled,disabled}`. They are 24x24 RGBA
-  images with matching numbered filenames. Run
-  `tools/generate_obstacle_icons.py` to regenerate the embedded
-  `plugin/obstacle_icon_data.cpp` table. The first three buttons
-  were visually accepted on 2026-07-12; disabled variants are grayscale with
-  alpha capped at 50 percent.
+- Category visuals are generated at runtime by `plugin/obstacle_def_images.cpp`.
+  No PNGs, raw DEFs, LOD data, or other proprietary image assets are embedded
+  in the plugin.
+- Statically verified native resource calls for this executable profile:
+  - `h3hota_maped.exe:0x004DB240` searches the editor's active archive list and
+    selects a named entry;
+  - `h3hota_maped.exe:0x004E4960` reads from the selected entry and maintains a
+    partial-read cursor.
+- Runtime verified: HotA patches the archive path so the same calls can select
+  and read keyed `HotA.lod` entries. Those directory records are not plaintext,
+  so the plugin deliberately does not inspect archive metadata. It reads the
+  fixed DEF/group headers, discovers the first-frame offset and payload size,
+  and then reads exactly through that frame using the native partial reader.
+- The bounded decoder currently supports the required adventure-object DEF
+  type `0x43`, compression format 3, and the first frame of the first group.
+  Unsupported or malformed resources log an error and retain the square
+  placeholder.
+- Reserved palette handling matches the required editor behavior: index `0`
+  is transparent; indices `1` and `4` are 25/50 percent black shadows; indices
+  `2` and `3` become shadows only when their palette colors are the reserved
+  magentas, otherwise they remain opaque palette colors. This distinction is
+  required for black detail in `Sand Mountains` and `Grass Mountains 3`.
+- Visible alpha bounds are cropped and aspect-fit into 24x24 icons or 160x160
+  previews with area resampling. Disabled icons are generated as grayscale at
+  half alpha. Preview selections of two, three, or four DEFs use deterministic
+  2-cell, 2+1, or 2x2 layouts within the same 160x160 image area.
 - Manual validation on 2026-07-05 confirmed the stabilized trace path and Place
   overlay:
   - one-tile Dirt/Sand/Grass/Snow marks produced applied terrain mask
@@ -1150,7 +1178,7 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
 
 ### Current Obstacle Workbook Contract
 
-As of 2026-07-01, the workbook at
+As of 2026-07-13, the workbook at
 `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx` is the source of
 truth for the obstacle type UI and selected-button generation filter.
 
@@ -1208,9 +1236,15 @@ Known plugin/borrowed RandTrn entries:
   applicable).
 
 `Button Mapping` drives category membership, button names, default selection,
-and the 12 terrain applicability columns. `Button Layout` drives visual order,
-four-column wrapping, and section breaks. Rock is void space; the generator
-rejects any button that enables it.
+the 12 terrain applicability columns, and runtime DEF visuals. `Icon Def`
+selects one representative DEF for the 24x24 button. `Preview Def 1` through
+`Preview Def 4` select one to four examples for the hover preview; unused cells
+may be blank or `n/a`, and populated preview cells must be contiguous. An icon
+and `Preview Def 1` must either both be supplied or both be unused. Every visual
+DEF must also belong to that button on `Obstacles`, which the generator
+validates. `Button Layout` drives visual order, four-column wrapping, and
+section breaks. Rock is void space; the generator rejects any button that
+enables it.
 
 Regenerate button metadata and plugin/custom template rows with:
 
