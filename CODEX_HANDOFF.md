@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 
 ## Purpose
 
@@ -53,10 +53,15 @@ Current accepted UI behavior and assets:
   authoritative runtime map dimensions documented below;
 - the first three placeholder buttons use numbered 24x24 enabled/disabled RGBA
   PNGs under `plugin/resources/obstacle_icons`;
-- the same three buttons have 96x96 RGBA hover previews with alpha and
+- the same three buttons use native 160x160 RGBA hover previews with alpha and
   semi-transparent shadows under the `preview` subfolder;
-- previews appear after 250 ms in a shared 104x104 non-activating popup, work
-  for enabled and disabled buttons, and composite against a white background;
+- previews appear after 250 ms in a shared non-activating popup, work for
+  enabled and disabled buttons, and composite against a white background;
+- the popup uses a fixed 164x164 image area containing a centered 160x160
+  preview directly adjoining a two-pixel border; a fixed-height, single-line
+  caption sits below it on a `#f0f0f0` background behind a two-pixel divider,
+  with the first three named `Dirt Mountains`, `Sand Mountains`, and
+  `Sand Dunes`;
 - `tools/generate_obstacle_icons.py` embeds the 24x24 pixels in generated C++
   and the compressed preview PNGs as generated `RCDATA` resources.
 
@@ -113,8 +118,10 @@ Replace or harden:
 
 - unvalidated absolute-address hooks;
 - initialization performed directly from `DllMain`;
-- the unfinished repeated-obstacle/cache-swapping scaffold;
-- the current object-limit module, which still enables unsafe booster limits.
+- any future repeated-obstacle/cache-swapping approach, which must be
+  revalidated before use;
+- the inherited garrison-cap mutation pattern before copying it to any other
+  feature.
 
 ## Repository State
 

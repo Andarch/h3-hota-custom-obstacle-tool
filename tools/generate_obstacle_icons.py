@@ -10,7 +10,7 @@ from PIL import Image
 
 ICON_NAME_PATTERN = re.compile(r"^(\d{2})_([a-z0-9_]+)\.png$")
 ICON_SIZE = (24, 24)
-PREVIEW_SIZE = (96, 96)
+PREVIEW_SIZE = (160, 160)
 PREVIEW_RESOURCE_BASE = 5000
 
 

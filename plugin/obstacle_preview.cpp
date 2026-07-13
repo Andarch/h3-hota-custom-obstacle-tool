@@ -12,11 +12,23 @@
 namespace
 {
     constexpr int kPreviewButtonLimit = 64;
-    constexpr int kPreviewImageExtent = 96;
-    constexpr int kPreviewWindowExtent = 104;
-    constexpr int kPreviewImageOffset = 4;
+    constexpr int kPreviewImageExtent = 160;
     constexpr int kPreviewBorderExtent = 2;
+    constexpr int kPreviewImageAreaExtent =
+        kPreviewImageExtent + 2 * kPreviewBorderExtent;
+    constexpr int kPreviewImageOffset = kPreviewBorderExtent;
+    constexpr int kPreviewCaptionExtent = 23;
+    constexpr int kPreviewCaptionHorizontalPadding = 8;
+    constexpr int kPreviewWindowWidth = kPreviewImageAreaExtent;
+    constexpr int kPreviewWindowHeight = kPreviewImageAreaExtent + kPreviewCaptionExtent;
     constexpr int kPreviewAnchorGap = 8;
+
+    constexpr const char* kPreviewButtonCaptions[] =
+    {
+        "Dirt Mountains",
+        "Sand Mountains",
+        "Sand Dunes",
+    };
 
     struct PreviewCacheEntry
     {
@@ -31,6 +43,15 @@ namespace
     HWND s_previewWindow = nullptr;
     HWND s_previewAnchor = nullptr;
     int s_previewButtonIndex = -1;
+
+    const char* PreviewCaptionForButton(int buttonIndex)
+    {
+        const int captionCount =
+            static_cast<int>(sizeof(kPreviewButtonCaptions) / sizeof(kPreviewButtonCaptions[0]));
+        if (buttonIndex < 0 || buttonIndex >= captionCount)
+            return nullptr;
+        return kPreviewButtonCaptions[buttonIndex];
+    }
 
     bool DecodePreviewResource(int resourceId, std::vector<BYTE>& bgra)
     {
@@ -207,6 +228,51 @@ namespace
         PreviewCacheEntry* preview = PreviewForButton(s_previewButtonIndex);
         if (preview)
             DrawPreviewPixels(hdc, *preview, backgroundColor);
+
+        RECT dividerRect =
+        {
+            kPreviewBorderExtent,
+            kPreviewImageAreaExtent - kPreviewBorderExtent,
+            rect.right - kPreviewBorderExtent,
+            kPreviewImageAreaExtent,
+        };
+        HBRUSH divider = CreateSolidBrush(RGB(192, 192, 192));
+        FillRect(hdc, &dividerRect, divider);
+        DeleteObject(divider);
+
+        RECT captionBackgroundRect =
+        {
+            kPreviewBorderExtent,
+            kPreviewImageAreaExtent,
+            rect.right - kPreviewBorderExtent,
+            rect.bottom - kPreviewBorderExtent,
+        };
+        HBRUSH captionBackground = CreateSolidBrush(RGB(240, 240, 240));
+        FillRect(hdc, &captionBackgroundRect, captionBackground);
+        DeleteObject(captionBackground);
+
+        const char* caption = PreviewCaptionForButton(s_previewButtonIndex);
+        if (caption)
+        {
+            RECT captionRect =
+            {
+                kPreviewBorderExtent + kPreviewCaptionHorizontalPadding,
+                kPreviewImageAreaExtent,
+                rect.right - kPreviewBorderExtent - kPreviewCaptionHorizontalPadding,
+                rect.bottom - kPreviewBorderExtent,
+            };
+            HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HGDIOBJ oldFont = SelectObject(hdc, font);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(0, 0, 0));
+            DrawTextA(
+                hdc,
+                caption,
+                -1,
+                &captionRect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            SelectObject(hdc, oldFont);
+        }
     }
 
     LRESULT CALLBACK PreviewWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -267,8 +333,8 @@ namespace
                 WS_POPUP,
                 0,
                 0,
-                kPreviewWindowExtent,
-                kPreviewWindowExtent,
+                kPreviewWindowWidth,
+                kPreviewWindowHeight,
                 owner,
                 nullptr,
                 s_pluginModule,
@@ -295,18 +361,18 @@ namespace
             MonitorFromWindow(anchor, MONITOR_DEFAULTTONEAREST),
             &monitorInfo);
 
-        x = anchorRect.left - kPreviewWindowExtent - kPreviewAnchorGap;
+        x = anchorRect.left - kPreviewWindowWidth - kPreviewAnchorGap;
         if (x < monitorInfo.rcWork.left)
             x = anchorRect.right + kPreviewAnchorGap;
         y = anchorRect.top +
-            ((anchorRect.bottom - anchorRect.top) - kPreviewWindowExtent) / 2;
+            ((anchorRect.bottom - anchorRect.top) - kPreviewWindowHeight) / 2;
 
-        if (x + kPreviewWindowExtent > monitorInfo.rcWork.right)
-            x = monitorInfo.rcWork.right - kPreviewWindowExtent;
+        if (x + kPreviewWindowWidth > monitorInfo.rcWork.right)
+            x = monitorInfo.rcWork.right - kPreviewWindowWidth;
         if (x < monitorInfo.rcWork.left)
             x = monitorInfo.rcWork.left;
-        if (y + kPreviewWindowExtent > monitorInfo.rcWork.bottom)
-            y = monitorInfo.rcWork.bottom - kPreviewWindowExtent;
+        if (y + kPreviewWindowHeight > monitorInfo.rcWork.bottom)
+            y = monitorInfo.rcWork.bottom - kPreviewWindowHeight;
         if (y < monitorInfo.rcWork.top)
             y = monitorInfo.rcWork.top;
     }
@@ -337,8 +403,8 @@ bool ShowObstaclePreview(HMODULE pluginModule, HWND anchor, int buttonIndex)
         HWND_TOP,
         x,
         y,
-        kPreviewWindowExtent,
-        kPreviewWindowExtent,
+        kPreviewWindowWidth,
+        kPreviewWindowHeight,
         SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(s_previewWindow, nullptr, FALSE);
     UpdateWindow(s_previewWindow);

@@ -52,7 +52,7 @@ Statically verified:
 - The supported profile matches the local target executable and verified hook
   bytes.
 - The Debug DLL exports `HotaMapEdPluginInitialize`.
-- The unfinished repeated-obstacle experiment is not initialized.
+- The repeated-obstacle experiment is not present in the active source tree.
 
 Runtime verified on 2026-06-15:
 

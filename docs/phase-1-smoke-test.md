@@ -45,8 +45,8 @@ Runtime behavior last verified by the user: 2026-06-15.
   and the three hook sites match the expected bytes.
 - Statically verified: active custom object-limit branches now match only the
   packed garrison identifier `0x00000021`.
-- Statically verified: the repeated-obstacle experiment remains in the source
-  tree but is not called by plugin initialization.
+- Statically verified: the repeated-obstacle experiment is not present in the
+  active source tree.
 - Runtime verified: every checkbox under Vanilla Behavior and the checked
   items under Garrison Limit.
 
