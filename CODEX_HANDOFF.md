@@ -64,6 +64,9 @@ through `Preview Def 4`. The compositor continues to support one-, two-, and
 three-DEF previews for later categories. The prior embedded-PNG implementation
 was checkpointed in commit `8624e7b` and then removed.
 
+All four `Lowered Ground` buttons (`Lakes`, `Lava`, `Tar Pits`, and `Broken
+Ground`) also have workbook-selected icons and four-DEF previews.
+
 Verification on 2026-07-13:
 
 - workbook generation passed with the counts above;
@@ -91,6 +94,12 @@ Verification on 2026-07-13:
 - workbook generation and sequential Debug/Release Win32 builds passed after
   restoring `Dirt Mountains` to four previews; runtime validation of the final
   updated set is pending user testing;
+- user runtime testing confirmed the button viewport works both without a
+  scrollbar at 4K/175% scaling and with only the final row scrollable at
+  3440x1440/125% scaling;
+- workbook generation and sequential Debug/Release Win32 builds passed after
+  populating all four `Lowered Ground` icon and preview selections; runtime
+  validation of those visuals is pending user testing;
 - user visual testing accepted the runtime-rendered size, crop, shadows, and
   corrected low-palette black details;
 - user runtime testing accepted the one-row and two-row terrain panels,
