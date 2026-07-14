@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Purpose
 
@@ -58,9 +58,10 @@ DEFs selected in `Button Mapping`. Icons are generated at 24x24; previews are
 generated at 160x160. The popup remains 164 pixels wide with a 164x164 image
 area and fixed caption position. Its `#c0c0c0` lower panel now includes the
 caption and one or two rows of valid-terrain icons, making the total height 220
-or 246 pixels. `Active Volcanoes`, `Hills`, `Mounds`, and `Reefs` use four DEFs
-in a 2x2 preview grid, ordered left-to-right and then top-to-bottom by `Preview
-Def 1` through `Preview Def 4`. The prior embedded-PNG implementation was
+or 246 pixels. All 20 `Raised Ground` buttons use four DEFs in a 2x2 preview
+grid, ordered left-to-right and then top-to-bottom by `Preview Def 1` through
+`Preview Def 4`. The compositor continues to support one-, two-, and three-DEF
+previews for later categories. The prior embedded-PNG implementation was
 checkpointed in commit `8624e7b` and then removed.
 
 Verification on 2026-07-13:
@@ -80,7 +81,10 @@ Verification on 2026-07-13:
   previews from both `H3sprite.lod` and keyed `HotA.lod` resources;
 - metadata generation and sequential Debug/Release Win32 builds passed after
   populating DEF visuals for the remaining 12 `Raised Ground` buttons; runtime
-  validation of the four-DEF 2x2 previews is pending user testing;
+  testing accepted the four-DEF 2x2 layout;
+- workbook generation and sequential Debug/Release Win32 builds passed after
+  expanding every `Raised Ground` button to four previews; runtime validation
+  of the complete updated set is pending user testing;
 - user visual testing accepted the runtime-rendered size, crop, shadows, and
   corrected low-palette black details;
 - user runtime testing accepted the one-row and two-row terrain panels,
