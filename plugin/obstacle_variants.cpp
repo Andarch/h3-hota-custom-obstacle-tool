@@ -948,7 +948,7 @@ namespace
         const ObstacleRenderedImage* icon,
         COLORREF background)
     {
-        constexpr int kIconExtent = 24;
+        constexpr int kIconExtent = 30;
         if (!icon || icon->width != kIconExtent || icon->height != kIconExtent ||
             icon->bgra.size() != kIconExtent * kIconExtent * 4)
             return false;

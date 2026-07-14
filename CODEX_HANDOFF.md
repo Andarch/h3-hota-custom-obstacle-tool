@@ -54,7 +54,7 @@ Implemented UI behavior:
   `self` and `native bucket` leave HotA's native row assignment unchanged.
 
 All 20 `Raised Ground` buttons currently render their icon and preview from the
-DEFs selected in `Button Mapping`. Icons are generated at 24x24; previews are
+DEFs selected in `Button Mapping`. Icons are generated at 30x30; previews are
 generated at 160x160. The popup remains 164 pixels wide with a 164x164 image
 area and fixed caption position. Its `#c0c0c0` lower panel now includes the
 caption and one or two rows of valid-terrain icons, making the total height 220
@@ -105,6 +105,9 @@ Verification on 2026-07-13:
 - user runtime testing accepted the one-row and two-row terrain panels,
   including the corrected Highlands/Wasteland/Water strip mapping and the
   10-icon `6+4` layout shown by `Crumbled Structures`;
+- user visual testing accepted increasing DEF-rendered button icons from 24x24
+  to 30x30, leaving a one-pixel gap inside each 32x32 button frame; a temporary
+  1.25x centered zoom-and-crop experiment was rejected and removed;
 - generalized RandTrn borrowing still needs an isolated runtime test.
 
 ## User Goals And Decisions
