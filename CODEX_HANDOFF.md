@@ -26,7 +26,7 @@ tabs in:
 
 `tools/generate_obstacle_buttons.py` emits
 `plugin/obstacle_button_data.{h,cpp}`. The generated data contains 60 buttons,
-7 visual sections, 865 DEF-to-button mappings, 34 selected-mode `objects.txt`
+7 visual sections, 866 DEF-to-button mappings, 34 selected-mode `objects.txt`
 template overrides, and 12 explicit RandTrn borrow sources. Regenerate it after
 changing any of those workbook tabs; do not edit the generated files by hand.
 
@@ -59,10 +59,10 @@ generated at 160x160. The popup remains 164 pixels wide with a 164x164 image
 area and fixed caption position. Its `#c0c0c0` lower panel now includes the
 caption and one or two rows of valid-terrain icons, making the total height 220
 or 246 pixels. All 20 `Raised Ground` buttons use four DEFs in a 2x2 preview
-grid, ordered left-to-right and then top-to-bottom by `Preview Def 1` through
-`Preview Def 4`. The compositor continues to support one-, two-, and three-DEF
-previews for later categories. The prior embedded-PNG implementation was
-checkpointed in commit `8624e7b` and then removed.
+grid. Preview order is left-to-right and then top-to-bottom by `Preview Def 1`
+through `Preview Def 4`. The compositor continues to support one-, two-, and
+three-DEF previews for later categories. The prior embedded-PNG implementation
+was checkpointed in commit `8624e7b` and then removed.
 
 Verification on 2026-07-13:
 
@@ -85,6 +85,12 @@ Verification on 2026-07-13:
 - workbook generation and sequential Debug/Release Win32 builds passed after
   expanding every `Raised Ground` button to four previews; runtime validation
   of the complete updated set is pending user testing;
+- workbook generation and sequential Debug/Release Win32 builds passed after
+  adding `grsmnt05.def`, revising selected third/fourth preview DEFs, and making
+  `Dirt Mountains` a temporary three-preview layout example;
+- workbook generation and sequential Debug/Release Win32 builds passed after
+  restoring `Dirt Mountains` to four previews; runtime validation of the final
+  updated set is pending user testing;
 - user visual testing accepted the runtime-rendered size, crop, shadows, and
   corrected low-palette black details;
 - user runtime testing accepted the one-row and two-row terrain panels,
@@ -1216,10 +1222,10 @@ truth for the obstacle type UI and selected-button generation filter.
 
 Current `Obstacles` tab audit:
 
-- 865 obstacle rows;
+- 866 obstacle rows;
 - 7 categories;
 - 60 buttons;
-- `Source` counts: 836 `hota`, 29 `plugin`;
+- `Source` counts: 837 `hota`, 29 `plugin`;
 - 5 intentional custom random masks;
 - 56 `native bucket` RandTrn entries;
 - duplicate `edobjts.txt` keys are expected only for the dead-tree family and
