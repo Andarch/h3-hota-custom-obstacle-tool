@@ -45,6 +45,8 @@ Implemented UI behavior:
   unsupported;
 - all 60 hover popups use the workbook button name. Buttons without workbook
   DEF visual selections use the existing square placeholder;
+- every hover popup shows its button's valid terrain types from the generated
+  terrain mask, excluding Rock/Void;
 - only DEFs mapped to checked buttons pass the final native candidate hook;
 - selected plugin/custom rows are replaced or appended in a temporary
   per-generation `objects.txt` overlay;
@@ -53,17 +55,18 @@ Implemented UI behavior:
 
 The first eight buttons currently render their icon and preview from the DEFs
 selected in `Button Mapping`. Icons are generated at 24x24; previews are
-generated at 160x160. The popup remains 164x187: a 164x164 image area with a
-two-pixel border and a fixed 23-pixel `#f0f0f0` caption area separated by a
-two-pixel divider. The prior embedded-PNG implementation was checkpointed in
-commit `8624e7b` and then removed.
+generated at 160x160. The popup remains 164 pixels wide with a 164x164 image
+area and fixed caption position. Its `#c0c0c0` lower panel now includes the
+caption and one or two rows of valid-terrain icons, making the total height 220
+or 246 pixels. The prior embedded-PNG implementation was checkpointed in commit
+`8624e7b` and then removed.
 
 Verification on 2026-07-13:
 
 - workbook generation passed with the counts above;
 - clean sequential Debug Win32 and Release Win32 rebuilds passed after the
-  embedded PNG pipeline was removed; the resulting DLLs are 777,728 bytes and
-  131,584 bytes respectively;
+  terrain indicators were added; the resulting DLLs are 784,896 bytes and
+  132,608 bytes respectively;
 - the editor started through the Debug launcher and all expected hook bytes,
   executable hashes, and metadata availability checks passed;
 - user runtime testing confirmed all buttons paint immediately, scrollbar-thumb
@@ -75,6 +78,9 @@ Verification on 2026-07-13:
   previews from both `H3sprite.lod` and keyed `HotA.lod` resources;
 - user visual testing accepted the runtime-rendered size, crop, shadows, and
   corrected low-palette black details;
+- user runtime testing accepted the one-row and two-row terrain panels,
+  including the corrected Highlands/Wasteland/Water strip mapping and the
+  10-icon `6+4` layout shown by `Crumbled Structures`;
 - generalized RandTrn borrowing still needs an isolated runtime test.
 
 ## User Goals And Decisions
@@ -1166,6 +1172,23 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   previews with area resampling. Disabled icons are generated as grayscale at
   half alpha. Preview selections of two, three, or four DEFs use deterministic
   2-cell, 2+1, or 2x2 layouts within the same 160x160 image area.
+- Terrain indicators use `BITMAP` resource `141` from the loaded `hota_me.dll`.
+  The installed HotA 1.8.0 resource was independently verified as a 288x24,
+  32-bit strip containing twelve 24x24 cells. Cells `0..7` match terrain bits;
+  cells `8`, `9`, and `10` are Highlands, Wasteland, and Water respectively,
+  while cell `11` is Rock/Void. The plugin caches that native bitmap and embeds
+  no terrain image assets.
+- Popup terrain order is Dirt, Sand, Grass, Snow, Swamp, Rough, Subterranean,
+  Lava, Water, Highlands, and Wasteland. Rock/Void bit `9` is skipped and valid
+  cells are compacted left with six per row. Counts `1..6` produce a 220-pixel
+  popup; counts `7..11` produce a 246-pixel popup.
+- Current workbook masks cover icon counts `1,2,3,4,5,7,8,9,10`. Debug-only
+  assertions exercise all counts `1..11`, the six/seven row boundary, sparse
+  ordering, Rock omission, and destination bounds without changing workbook
+  metadata.
+- Runtime verified on 2026-07-13: one- and two-row popups render at the intended
+  sizes; Snow remains visible on `#c0c0c0`; Highlands, Wasteland, and Water use
+  strip cells `8`, `9`, and `10`; and a 10-terrain mask renders as `6+4`.
 - Manual validation on 2026-07-05 confirmed the stabilized trace path and Place
   overlay:
   - one-tile Dirt/Sand/Grass/Snow marks produced applied terrain mask
