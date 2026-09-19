@@ -121,12 +121,33 @@ work with the rebuilt DLL.
 
 ## Current Obstacle Button Implementation
 
+### Maple Generation and Shortcut Regression (2026-09-19)
+
+- Statically verified: workbook Maple Trees use native type/subtype 140/12,
+  but 1.8.1 RandTrn has no matching row. The selected-object fallback now also
+  covers mapped objects with a null native row, not just custom-template
+  buttons. Existing non-custom native rows remain unchanged. Regression tests
+  cover Maples on Dirt only and preservation of an existing native row.
+- The user reported Ctrl+Z, Ctrl+S, and Shift+O stop working after placement
+  and do not recover after clicking the map. Hypothesis requiring validation:
+  the newly introduced focusable category action BUTTONs disrupt accelerator
+  routing, a previously documented editor integration problem. Their mouse
+  handling now uses capture without taking focus; tab-stop style is removed.
+  Native drawing and click notifications remain, with drag cancellation and
+  wheel forwarding. No focus is forced to the editor's side toolbar.
+- Debug/Release builds and compatibility tests pass. The user confirmed both
+  Maple generation and keyboard shortcuts are fixed in a fresh editor session.
+- Selected, enabled obstacle buttons now use a slightly darker blue fill
+  (`#D2EBFC`), with corresponding hover/press shades and a 1px `#ABDEFC` border.
+  Disabled appearance is unchanged. The user approved the colors on 2026-09-19.
+
 ### Tree Visuals and Preview Scaling (2026-09-19)
 
-Workbook regeneration now includes icons and four-image previews for the first
-twelve Trees buttons, from Oak Trees 1 through Dead Swamp Trees. The missing
-`avlhpn10.def` is mapped to Spruces and included in its preview. Other mappings,
-terrain masks, and generation settings are unchanged.
+Workbook regeneration now includes icons and previews for all eighteen Trees
+buttons. Willow Trees uses three previews and Carnivorous Plants uses one;
+the others use four. The missing `avlhpn10.def` and `TPMTREE3.def` are mapped
+to Spruces and Predatory Plants respectively and included in their previews.
+Terrain masks are unchanged. The user approved the completed visuals.
 
 Preview rendering now caps scaling at 1:1 source pixels, while still shrinking
 larger images to fit and centering each image within its existing cell. Icon
@@ -144,7 +165,7 @@ The existing generation-button enablement is refreshed immediately. Controls
 scroll with their category; category names remain hidden and separators remain.
 The user confirmed the controls work and requested improved symbol centering.
 Symbols now use centered 7px geometric strokes in native button custom-draw
-postpaint, retaining native borders, hover, focus, and pressed behavior instead
+postpaint, retaining native borders, hover, and pressed behavior instead
 of relying on font baselines. Debug and Release Win32 builds passed.
 A matching gray horizontal rule now starts the scrolling content below the
 Obstacle Types header, with 8px before the first category selection controls.
@@ -196,7 +217,7 @@ tabs in:
 
 `tools/generate_obstacle_buttons.py` emits
 `plugin/obstacle_button_data.{h,cpp}`. The generated data contains 60 buttons,
-7 visual sections, 879 DEF-to-button mappings, 28 selected-mode `objects.txt`
+7 visual sections, 880 DEF-to-button mappings, 28 selected-mode `objects.txt`
 template overrides, and 12 explicit RandTrn borrow sources. Regenerate it after
 changing any of those workbook tabs; do not edit the generated files by hand.
 

@@ -1015,9 +1015,9 @@ namespace
         if (enabled && (checked || hot || pressed))
         {
             const COLORREF fill =
-                pressed ? RGB(186, 226, 255) :
-                hot ? RGB(214, 238, 255) :
-                RGB(229, 245, 255);
+                pressed ? RGB(174, 216, 247) :
+                hot ? (checked ? RGB(198, 228, 250) : RGB(214, 238, 255)) :
+                RGB(210, 235, 252);
             buttonBackground = fill;
             HBRUSH fillBrush = CreateSolidBrush(fill);
             RECT fillRect = rect;
@@ -1025,7 +1025,7 @@ namespace
             FillRect(hdc, &fillRect, fillBrush);
             DeleteObject(fillBrush);
 
-            HPEN framePen = CreatePen(PS_SOLID, 1, RGB(190, 232, 255));
+            HPEN framePen = CreatePen(PS_SOLID, 1, RGB(171, 222, 252));
             HGDIOBJ oldPen = SelectObject(hdc, framePen);
             HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
             RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 3, 3);
@@ -1412,6 +1412,61 @@ namespace
             return;
         state->scrollPosition = position;
         LayoutScrollHost(hwnd, *state);
+    }
+
+    LRESULT CALLBACK SelectionButtonSubclass(
+        HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+        UINT_PTR subclassId, DWORD_PTR)
+    {
+        // Keep native drawing, but do not let BUTTON's mouse handler take focus
+        // away from the editor's accelerator target.
+        switch (message)
+        {
+        case WM_MOUSEACTIVATE:
+            return MA_NOACTIVATE;
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDBLCLK:
+            SetCapture(hwnd);
+            SendMessageA(hwnd, BM_SETSTATE, TRUE, 0);
+            return 0;
+        case WM_MOUSEMOVE:
+            if (GetCapture() == hwnd)
+            {
+                RECT rect = {};
+                GetClientRect(hwnd, &rect);
+                POINT point = { static_cast<SHORT>(LOWORD(lParam)), static_cast<SHORT>(HIWORD(lParam)) };
+                SendMessageA(hwnd, BM_SETSTATE, PtInRect(&rect, point), 0);
+                return 0;
+            }
+            break;
+        case WM_LBUTTONUP:
+            if (GetCapture() == hwnd)
+            {
+                RECT rect = {};
+                GetClientRect(hwnd, &rect);
+                POINT point = { static_cast<SHORT>(LOWORD(lParam)), static_cast<SHORT>(HIWORD(lParam)) };
+                const bool clicked = PtInRect(&rect, point) != FALSE;
+                ReleaseCapture();
+                SendMessageA(hwnd, BM_SETSTATE, FALSE, 0);
+                if (clicked)
+                    SendMessageA(GetParent(hwnd), WM_COMMAND,
+                        MAKEWPARAM(GetDlgCtrlID(hwnd), BN_CLICKED), reinterpret_cast<LPARAM>(hwnd));
+            }
+            return 0;
+        case WM_CANCELMODE:
+            if (GetCapture() == hwnd) ReleaseCapture();
+            SendMessageA(hwnd, BM_SETSTATE, FALSE, 0);
+            break;
+        case WM_CAPTURECHANGED:
+            SendMessageA(hwnd, BM_SETSTATE, FALSE, 0);
+            break;
+        case WM_MOUSEWHEEL:
+            return SendMessageA(GetParent(hwnd), message, wParam, lParam);
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, SelectionButtonSubclass, subclassId);
+            break;
+        }
+        return DefSubclassProc(hwnd, message, wParam, lParam);
     }
 
     LRESULT CALLBACK ScrollHostWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -2261,7 +2316,7 @@ namespace
             for (int action = 0; createdAll && action < kObstacleCategoryCount * 2; ++action)
             {
                 HWND button = CreateWindowExA(0, "BUTTON", "",
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                    WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                     (action % 2) * (kSelectionButtonExtent + 6),
                     scrollState->selectionY[action / 2],
                     kSelectionButtonExtent, kSelectionButtonExtent, panel.scrollHost,
@@ -2269,6 +2324,8 @@ namespace
                     s_pluginModule, nullptr);
                 scrollState->selectionButtons[action] = button;
                 createdAll = button != nullptr;
+                if (!createdAll) break;
+                createdAll = SetWindowSubclass(button, SelectionButtonSubclass, 1, 0) != FALSE;
                 if (!createdAll) break;
                 SendMessageA(button, WM_SETFONT,
                     reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);

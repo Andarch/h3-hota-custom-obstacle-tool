@@ -919,14 +919,17 @@ namespace
             const auto* item = ObstacleTemplateOverrideAt(i);
             if (item && item->buttonIndex == buttonIndex) { custom = true; break; }
         }
-        if (!custom) return true;
+        DWORD native = 0;
+        if (!SafeReadDword(record + 0x10, native)) return false;
+        // A workbook-mapped native object can have no RandTrn subtype row
+        // (for example Maple Trees, 140/12). Repair only missing rows here.
+        if (!custom && native) return true;
         auto found = s_selectedObjectRules.find(objectTemplate);
         if (found == s_selectedObjectRules.end())
         {
             DWORD source = ObstacleBorrowedRowForObjectTemplate(objectTemplate);
-            DWORD native = 0, mask = 0;
-            if (!SafeReadDword(record + 0x10, native) ||
-                !SafeReadDword(objectTemplate + 0x18, mask)) return false;
+            DWORD mask = 0;
+            if (!SafeReadDword(objectTemplate + 0x18, mask)) return false;
             if (!source) source = native ? native : s_defaultSelectedRow;
             const auto* button = ObstacleButtonDefinitionAt(buttonIndex);
             if (!button) return false;
