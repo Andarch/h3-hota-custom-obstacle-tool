@@ -121,6 +121,19 @@ work with the rebuilt DLL.
 
 ## Current Obstacle Button Implementation
 
+### Tree Visuals and Preview Scaling (2026-09-19)
+
+Workbook regeneration now includes icons and four-image previews for the first
+twelve Trees buttons, from Oak Trees 1 through Dead Swamp Trees. The missing
+`avlhpn10.def` is mapped to Spruces and included in its preview. Other mappings,
+terrain masks, and generation settings are unchanged.
+
+Preview rendering now caps scaling at 1:1 source pixels, while still shrinking
+larger images to fit and centering each image within its existing cell. Icon
+scaling, popup dimensions, and one-to-four-image layouts are unchanged. The user
+approved the no-upscaling preview on 2026-09-19. Debug and Release Win32 builds
+passed. Source workbook: `obstacles_1.8.1.xlsx` at the authoritative path below.
+
 ### Category Selection Controls (2026-09-19)
 
 Each category now starts with two native 18x18 push buttons, `+` and `-`, in a
@@ -183,7 +196,7 @@ tabs in:
 
 `tools/generate_obstacle_buttons.py` emits
 `plugin/obstacle_button_data.{h,cpp}`. The generated data contains 60 buttons,
-7 visual sections, 878 DEF-to-button mappings, 28 selected-mode `objects.txt`
+7 visual sections, 879 DEF-to-button mappings, 28 selected-mode `objects.txt`
 template overrides, and 12 explicit RandTrn borrow sources. Regenerate it after
 changing any of those workbook tabs; do not edit the generated files by hand.
 

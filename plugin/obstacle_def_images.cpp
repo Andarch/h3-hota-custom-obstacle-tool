@@ -556,7 +556,8 @@ namespace
         const ObstacleRenderedImage& source,
         const PixelBounds& sourceBounds,
         ObstacleRenderedImage& destination,
-        const RECT& target)
+        const RECT& target,
+        bool allowEnlargement)
     {
         const int targetWidth = target.right - target.left;
         const int targetHeight = target.bottom - target.top;
@@ -565,9 +566,10 @@ namespace
         if (targetWidth <= 0 || targetHeight <= 0 || sourceWidth <= 0 || sourceHeight <= 0)
             return;
 
-        const double scale = std::min(
+        const double fitScale = std::min(
             static_cast<double>(targetWidth) / sourceWidth,
             static_cast<double>(targetHeight) / sourceHeight);
+        const double scale = allowEnlargement ? fitScale : std::min(1.0, fitScale);
         const int outputWidth = std::max(1, static_cast<int>(std::floor(sourceWidth * scale + 0.5)));
         const int outputHeight = std::max(1, static_cast<int>(std::floor(sourceHeight * scale + 0.5)));
         const int outputLeft = target.left + (targetWidth - outputWidth) / 2;
@@ -643,7 +645,8 @@ namespace
         const ObstacleRenderedImage& source,
         ObstacleRenderedImage& destination,
         RECT target,
-        int padding)
+        int padding,
+        bool allowEnlargement = true)
     {
         PixelBounds bounds;
         if (!FindVisibleBounds(source, bounds))
@@ -651,7 +654,7 @@ namespace
         InflateRect(&target, -padding, -padding);
         if (target.left >= target.right || target.top >= target.bottom)
             return false;
-        ResampleInto(source, bounds, destination, target);
+        ResampleInto(source, bounds, destination, target, allowEnlargement);
         return true;
     }
 
@@ -722,7 +725,7 @@ namespace
         for (int index = 0; index < sourceCount; ++index)
         {
             const RECT cell = PreviewCell(sourceCount, index);
-            RenderSourceInto(*sources[index], cache.preview, cell, sourceCount > 1 ? 2 : 0);
+            RenderSourceInto(*sources[index], cache.preview, cell, sourceCount > 1 ? 2 : 0, false);
         }
         return true;
     }
