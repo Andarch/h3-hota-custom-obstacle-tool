@@ -22,6 +22,9 @@ namespace
     constexpr UINT kPlaceThickObstaclesCommand = 0x7001;
     constexpr UINT kPlaceThinObstaclesCommand = 0x7002;
     constexpr int kCategoryButtonExtent = 32;
+    constexpr int kSelectionButtonExtent = 18;
+    constexpr int kSelectionRowHeight = 22;
+    constexpr int kSelectionCommandBase = 4100;
     constexpr int kCategoryGlyphExtent = 24;
     constexpr int kCategoryRowGap = 4;
     constexpr int kCategoryRuleGap = 15;
@@ -75,6 +78,10 @@ namespace
 
     struct ScrollHostState
     {
+        HWND selectionButtons[kObstacleCategoryCount * 2] = {};
+        HWND selectionTooltip = nullptr;
+        HWND sourceToolbar = nullptr;
+        int selectionY[kObstacleCategoryCount] = {};
         HWND buttons[kObstacleButtonCount] = {};
         int buttonX[kObstacleButtonCount] = {};
         int buttonY[kObstacleButtonCount] = {};
@@ -1382,6 +1389,15 @@ namespace
             }
         }
 
+        for (int index = 0; index < kObstacleCategoryCount * 2; ++index)
+        {
+            if (state.selectionButtons[index])
+                SetWindowPos(state.selectionButtons[index], nullptr,
+                    (index % 2) * (kSelectionButtonExtent + 6),
+                    state.selectionY[index / 2] - state.scrollPosition,
+                    kSelectionButtonExtent, kSelectionButtonExtent, positionFlags);
+        }
+
         RedrawWindow(
             hwnd,
             nullptr,
@@ -1410,6 +1426,58 @@ namespace
         }
         case WM_ERASEBKGND:
             return 1;
+        case WM_NOTIFY:
+        {
+            const auto* draw = reinterpret_cast<NMCUSTOMDRAW*>(lParam);
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (!draw || !state || draw->hdr.code != NM_CUSTOMDRAW) break;
+            const int action = static_cast<int>(draw->hdr.idFrom) - kSelectionCommandBase;
+            if (action < 0 || action >= kObstacleCategoryCount * 2 ||
+                draw->hdr.hwndFrom != state->selectionButtons[action]) break;
+            if (draw->dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYPOSTPAINT;
+            if (draw->dwDrawStage == CDDS_POSTPAINT)
+            {
+                RECT client = {};
+                GetClientRect(draw->hdr.hwndFrom, &client);
+                const int offset = (draw->uItemState & CDIS_SELECTED) ? 1 : 0;
+                const int x = (client.right - 1) / 2 + offset;
+                const int y = (client.bottom - 1) / 2 + offset;
+                HBRUSH ink = GetSysColorBrush((draw->uItemState & CDIS_DISABLED)
+                    ? COLOR_GRAYTEXT : COLOR_BTNTEXT);
+                RECT horizontal = { x - 3, y, x + 4, y + 1 };
+                FillRect(draw->hdc, &horizontal, ink);
+                if (action % 2 == 0)
+                {
+                    RECT vertical = { x, y - 3, x + 1, y + 4 };
+                    FillRect(draw->hdc, &vertical, ink);
+                }
+                return CDRF_DODEFAULT;
+            }
+            break;
+        }
+        case WM_COMMAND:
+        {
+            ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            const int action = LOWORD(wParam) - kSelectionCommandBase;
+            if (!state || HIWORD(wParam) != BN_CLICKED || action < 0 ||
+                action >= kObstacleCategoryCount * 2 ||
+                reinterpret_cast<HWND>(lParam) != state->selectionButtons[action])
+                break;
+            HideObstaclePreview(nullptr);
+            EnsureCategoryCheckedInitialized();
+            const bool checked = action % 2 == 0;
+            for (int index = 0; index < kObstacleButtonCount; ++index)
+            {
+                const auto* definition = ObstacleButtonDefinitionAt(index);
+                if (!definition || definition->categoryIndex != action / 2) continue;
+                s_categoryChecked[index] = checked;
+                auto* button = CategoryButtonStateFromWindow(state->buttons[index]);
+                if (button) button->checked = checked;
+                InvalidateRect(state->buttons[index], nullptr, FALSE);
+            }
+            RefreshCategoryButtonsForToolbar(state->sourceToolbar);
+            return 0;
+        }
         case WM_SIZE:
         {
             ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
@@ -1471,6 +1539,8 @@ namespace
             {
                 HPEN rule = CreatePen(PS_SOLID, 1, RGB(192, 192, 192));
                 HGDIOBJ oldPen = SelectObject(hdc, rule);
+                MoveToEx(hdc, 0, -state->scrollPosition, nullptr);
+                LineTo(hdc, client.right, -state->scrollPosition);
                 for (int index = 0; index < kObstacleCategoryCount - 1; ++index)
                 {
                     const int y = state->ruleY[index] - state->scrollPosition;
@@ -1486,6 +1556,7 @@ namespace
         case WM_NCDESTROY:
         {
             ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (state && state->selectionTooltip) DestroyWindow(state->selectionTooltip);
             SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
             delete state;
             return 0;
@@ -1581,9 +1652,11 @@ namespace
         }
 
         int categoryY[kObstacleCategoryCount] = {};
-        int y = 0;
+        int y = kCategoryRuleGap - kCategoryRuleOffset;
         for (int category = 0; category < kObstacleCategoryCount; ++category)
         {
+            state.selectionY[category] = y;
+            y += kSelectionRowHeight;
             categoryY[category] = y;
             const int categoryHeight =
                 rowCounts[category] * kCategoryButtonExtent +
@@ -2173,6 +2246,41 @@ namespace
                 break;
             }
             scrollState->buttons[i] = panel.categoryButtons[i];
+        }
+
+        if (createdAll && scrollState)
+        {
+            scrollState->sourceToolbar = toolbar;
+            scrollState->selectionTooltip = CreateWindowExA(WS_EX_TOPMOST,
+                TOOLTIPS_CLASSA, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                panel.scrollHost, nullptr, s_pluginModule, nullptr);
+            createdAll = scrollState->selectionTooltip != nullptr;
+            static char allText[] = "Select All";
+            static char noneText[] = "Select None";
+            for (int action = 0; createdAll && action < kObstacleCategoryCount * 2; ++action)
+            {
+                HWND button = CreateWindowExA(0, "BUTTON", "",
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                    (action % 2) * (kSelectionButtonExtent + 6),
+                    scrollState->selectionY[action / 2],
+                    kSelectionButtonExtent, kSelectionButtonExtent, panel.scrollHost,
+                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSelectionCommandBase + action)),
+                    s_pluginModule, nullptr);
+                scrollState->selectionButtons[action] = button;
+                createdAll = button != nullptr;
+                if (!createdAll) break;
+                SendMessageA(button, WM_SETFONT,
+                    reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+                TOOLINFOA tool = {};
+                tool.cbSize = sizeof(tool);
+                tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+                tool.hwnd = panel.scrollHost;
+                tool.uId = reinterpret_cast<UINT_PTR>(button);
+                tool.lpszText = action % 2 ? noneText : allText;
+                createdAll = SendMessageA(scrollState->selectionTooltip, TTM_ADDTOOLA,
+                    0, reinterpret_cast<LPARAM>(&tool)) != FALSE;
+            }
         }
 
         if (!createdAll)

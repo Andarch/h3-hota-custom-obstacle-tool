@@ -121,6 +121,22 @@ work with the rebuilt DLL.
 
 ## Current Obstacle Button Implementation
 
+### Category Selection Controls (2026-09-19)
+
+Each category now starts with two native 18x18 push buttons, `+` and `-`, in a
+22px-high row. Their tooltips are exactly `Select All` and `Select None`.
+They change the saved selection of every obstacle button in that category,
+including terrain-disabled buttons, without overriding terrain applicability.
+The existing generation-button enablement is refreshed immediately. Controls
+scroll with their category; category names remain hidden and separators remain.
+The user confirmed the controls work and requested improved symbol centering.
+Symbols now use centered 7px geometric strokes in native button custom-draw
+postpaint, retaining native borders, hover, focus, and pressed behavior instead
+of relying on font baselines. Debug and Release Win32 builds passed.
+A matching gray horizontal rule now starts the scrolling content below the
+Obstacle Types header, with 8px before the first category selection controls.
+The user approved the final appearance, including the separator, on 2026-09-19.
+
 ### Custom Animal/Miscellaneous Generation Repair (2026-09-19)
 
 The all-land Animals/Miscellaneous test exposed two independent failures:
