@@ -3,4 +3,5 @@
 #include <string>
 
 bool ObstacleDiagnosticsEnabled();
-bool InstallObstacleDiagnosticsHooks(std::string& error);
+struct HotaModuleTargetProfile;
+bool InstallObstacleDiagnosticsHooks(const HotaModuleTargetProfile& profile, std::string& error);

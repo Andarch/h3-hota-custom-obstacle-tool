@@ -53,6 +53,17 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
     LogFormat("Selected target profile: %s", profile->name);
 
     std::string error;
+    const auto* hotaProfile = FindLoadedHotaModuleTargetProfile(error);
+    if (!hotaProfile)
+    {
+        LogFormat("Target module validation failed: %s; no hooks were installed.",
+            error.c_str());
+        s_initializeResult = kPluginInitializeUnsupportedTarget;
+        InterlockedExchange(&s_initializeState, 3);
+        return s_initializeResult;
+    }
+    LogFormat("Selected HotA module profile: %s", hotaProfile->name);
+
     if (!InstallObjectLimitHooks(*profile, error))
     {
         LogFormat("Garrison feature installation failed: %s", error.c_str());
@@ -66,7 +77,7 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
     if (ObstacleFilterEnabled() || ObstacleVariantsEnabled())
     {
         LogMessage("Obstacle filter hook requested by obstacle filter or variant settings.");
-        if (!InstallObstacleFilterHooks(error))
+        if (!InstallObstacleFilterHooks(*hotaProfile, error))
         {
             LogFormat("Obstacle filter installation failed: %s", error.c_str());
             s_initializeResult = kPluginInitializeHookFailed;
@@ -105,7 +116,7 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
     if (ObstacleDiagnosticsEnabled())
     {
         LogMessage("Obstacle diagnostics requested by HOTA_MAPED_PLUGIN_DIAGNOSTICS.");
-        if (!InstallObstacleDiagnosticsHooks(error))
+        if (!InstallObstacleDiagnosticsHooks(*hotaProfile, error))
         {
             LogFormat("Obstacle diagnostics installation failed: %s", error.c_str());
             s_initializeResult = kPluginInitializeHookFailed;

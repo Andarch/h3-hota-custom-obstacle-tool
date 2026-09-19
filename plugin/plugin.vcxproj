@@ -94,6 +94,7 @@
     <ClInclude Include="obstacle_diagnostics.h" />
     <ClInclude Include="obstacle_filter.h" />
     <ClInclude Include="obstacle_preview.h" />
+    <ClInclude Include="obstacle_selection_geometry.h" />
     <ClInclude Include="obstacle_variants.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="plugin_api.h" />

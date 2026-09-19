@@ -11,6 +11,7 @@ enum class ObstacleGenerationFilterMode
 };
 
 bool ObstacleFilterEnabled();
-bool InstallObstacleFilterHooks(std::string& error);
+struct HotaModuleTargetProfile;
+bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::string& error);
 void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode);
 void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask);

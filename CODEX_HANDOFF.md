@@ -1,6 +1,6 @@
 # Codex Project Handoff
 
-Last updated: 2026-07-14
+Last updated: 2026-09-19
 
 ## Purpose
 
@@ -16,17 +16,120 @@ Do not begin by recreating the entire map editor. A standalone map library or
 tool may become useful later, but the official editor plugin is currently the
 lowest-cost path for features that need HotA's native editor behavior.
 
+## Current Compatibility: HotA 1.8.1
+
+The current plugin targets **1.8.1 only**, per the user's decision to track the
+latest HotA rather than retain older-version support. Older 1.8.0 addresses and
+runtime findings below are historical; this section supersedes their target
+profile information. Work remains on `main`.
+
+Statically verified against the installed binaries:
+
+- `h3hota_maped.exe` is unchanged (2,772,992 bytes), SHA-256
+  `CCF1E8424D913AA409ECC168F87FB20EDD64C3A56D412F2878065FC261BC6113`.
+- `hota_me.dll` changed (2,749,440 bytes), SHA-256
+  `365EB0C5C01ADBEAEC6A46E12D49BA2C710150270600ACE496496EB432DEA240`.
+- The September 19 startup failure was the old DLL-hash guard rejecting this
+  new module, after the garrison hooks had already installed. Initialization
+  now checks both hashes before installing any hooks. Unknown module versions,
+  including 1.8.0, are rejected without patching. Original-byte guards remain.
+- EXE garrison, resource, object-registration, candidate, and UI hook addresses
+  remain unchanged. DLL addresses are centralized in `target_profile.cpp` and
+  shared with the optional diagnostic hooks.
+
+| DLL site | 1.8.1 RVA | Original bytes replayed |
+| --- | --- | --- |
+| Weight predicate | `0xCC230` | `8B 41 04 56 8B 30` |
+| Parser entry (diagnostics) | `0xDD4B0` | `55 8B EC 83 E4 F8` |
+| Wrapper row store | `0xDDB54` | `8B 44 24 30 8B 40 04 8B 04 88 89 43 10` |
+| Wrapper fallback | `0xDDB61` | `8B 4C 24 14 8B 54 24 1C` |
+
+The fallback thunk must reload ECX from `[esp+14h]` and EDX from `[esp+1Ch]`,
+then resume at RVA `0xDDB69`. Keeping the old stack offsets while changing only
+the hash/addresses is unsafe. Wrapper `+0x10` still holds its RandTrn row, and
+native row records remain 76 bytes. The parser's row-vector begin/end remain
+at generator `+0xEB8/+0xEBC`; the terrain-count global moved to RVA `0x17B6DC`.
+
+Native RandTrn now has 201 rows. Zero-based row 199 is the inserted snow glacier
+bucket (`140/14`), shifting lava outcropping (`136/0`) from 199 to 200. The
+optional legacy 200-row allowlist/terrain table is translated at lookup time;
+trace and explicit block-ID storage cover all 201 native rows. The added row
+keeps native eligibility. This is an index correction, not a workbook update.
+
+Verification on 2026-09-19:
+
+- Debug and Release Win32 solution builds passed.
+- `tests/compatibility_tests.vcxproj` passed in Debug and Release: supported and
+  unsupported profiles, old fallback-byte rejection, all row-index mappings,
+  snow/lava boundaries, explicit block IDs 200/201 and invalid 202, trace bounds,
+  parser-store/fallback stack and flag preservation, and predicate accept/reject
+  thunk paths. See `tests/README.md` for commands. No game files are required.
+- Runtime verified in disposable editor processes on a private desktop, without
+  Computer Use or interacting with the user's editor: Debug/Release plugin
+  initialization, expected live hook bytes, and the real 1.8.1 parser with
+  synthetic dirt/snow mountain, unmatched, lava outcropping, and glacier wrappers.
+  Vanilla and hooked runs both produced 201 rows and assignments `6,56,null,200,199`.
+  Every row's adjacent/overlap vectors contained 201 entries. The optional row
+  predicate hook also installed and executed in an isolated Debug run.
+- Local evidence remains in ignored `scratch/ida_hota_181_hooks.json`,
+  `scratch/hota_me_181.i64`, and `scratch/hota181_*` smoke-harness files. The old
+  game-directory IDA databases and original game binaries were not modified.
+- Pending user runtime verification: visible panel, DEF icons/previews, checked
+  button painting, borrowed-row generation, native placement, undo/redo, and
+  scrollbar behavior. Automated parser tests do not establish full map-editing
+  or visual acceptance.
+
+The subsequent 1.8.1 workbook update has now been regenerated against
+`HotA_1.8.1_txt/edobjts.txt`. Raised Ground follows the revised workbook order,
+including Ice Formations; Debris no longer has a separate Ice Blocks button.
+The native ice-formation and glacier buckets have all terrain weights set to
+`-5000`; workbook donor assignments remain the explicit source of borrowed
+generation weights. The user accepted the updated layout and visuals on
+2026-09-19 and supplied a successful snow-obstacle placement screenshot.
+Debug and Release Win32 builds and compatibility tests passed after regeneration.
+
+### Painted-Terrain Detection Correction
+
+The first 1.8.1 user test found that categories never greyed out and Place
+Obstacles stayed disabled. The capture hook was working: a read-only live
+diagnostic found a valid context with mode 6 and a valid selection. However,
+the old `[[context+0x54]+0x54/+0x58]` lookup returned `19x26` on the user's
+`72x72` map. These UI-context fields are not a reliable map-size source; the
+rejected dimensions made the scanner report no painted cells.
+
+Statically verified from the unchanged EXE's native tile access:
+
+- `0x42B23E` follows `*terrainCollection -> +0x08` to the terrain grid, then
+  calls `0x42A0FF` with `grid+0x04`.
+- The grid stores 6x6-tile chunks: column count at `grid+0x04`, chunk-pointer
+  vector begin/end at `grid+0x0C/+0x10`.
+- Width is `chunkColumns*6`; height is `(chunkCount/chunkColumns)*6`. The
+  plugin validates the vector and supported dimensions before scanning. It
+  does not use selection bounds, cursor/UI fields, or fixed 252x252 bounds.
+
+Runtime verified by read-only inspection on 2026-09-19: that grid had 12 chunk
+columns and 144 chunks, giving 72x72. Scanning the actual collection-0/state-2
+paint with those bounds found 59 cells and terrain mask `0x33` (Dirt, Sand,
+Swamp, Rough), consistent with the user's painted area. The editor and map
+were not modified by the diagnostic.
+
+`obstacle_selection_geometry.h` contains the shared dimension calculation.
+Compatibility tests cover every supported size (36 through 252), the live
+72x72 layout, null/empty/reversed/unaligned vectors, incomplete rows, unsupported
+sizes, and overflow-sized inputs. The user confirmed that greying and placement
+work with the rebuilt DLL.
+
 ## Current Obstacle Button Implementation
 
 The workbook-driven 60-button implementation is now in the source tree. Its
 authoritative inputs are the `Obstacles`, `Button Layout`, and `Button Mapping`
 tabs in:
 
-`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles.xlsx`
+`C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles_1.8.1.xlsx`
 
 `tools/generate_obstacle_buttons.py` emits
 `plugin/obstacle_button_data.{h,cpp}`. The generated data contains 60 buttons,
-7 visual sections, 866 DEF-to-button mappings, 34 selected-mode `objects.txt`
+7 visual sections, 878 DEF-to-button mappings, 28 selected-mode `objects.txt`
 template overrides, and 12 explicit RandTrn borrow sources. Regenerate it after
 changing any of those workbook tabs; do not edit the generated files by hand.
 
@@ -1103,10 +1206,10 @@ Obstacle variants: installed toolbar buttons parent=... toolbar=... thicknessTab
   - do not trust the selection object's chunk dimensions as scan bounds. A
     one-tile brush mark below map tile row `35` could be visibly painted but
     missed when the scan height came from the selection metadata;
-  - authoritative square-map scan dimensions are runtime-read from
-    `[[obstacle UI context + 0x54] + 0x54]` (width) and `+0x58` (height), and
-    are accepted only when each is one of HotA's fixed map sizes: `36`, `72`,
-    `108`, `144`, `180`, `216`, or `252`;
+  - current scan dimensions come from the native terrain grid's 6x6 chunks;
+    see the September 19 correction above. The former UI-context `+0x54`
+    pointer-chain inference was unreliable and has been removed. Dimensions
+    must still be one of `36`, `72`, `108`, `144`, `180`, `216`, or `252`;
   - the earlier fixed `252x252` scan produced out-of-range selection aliases on
     a `72x72` map. Those aliases caused painted Highlands/Wasteland cells to
     spuriously add legacy Swamp/Rough bits. Runtime testing on 2026-07-12

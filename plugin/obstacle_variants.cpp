@@ -8,6 +8,7 @@
 #include "obstacle_def_images.h"
 #include "obstacle_filter.h"
 #include "obstacle_preview.h"
+#include "obstacle_selection_geometry.h"
 
 #include <commctrl.h>
 #include <cstdio>
@@ -394,44 +395,36 @@ namespace
         LogFormat("Obstacle variants category trace: %s", summary);
     }
 
-    bool IsKnownMapDimension(DWORD value)
-    {
-        return value == 36 ||
-            value == 72 ||
-            value == 108 ||
-            value == 144 ||
-            value == 180 ||
-            value == 216 ||
-            value == 252;
-    }
-
-    bool TryReadMapDimensions(DWORD context, unsigned int& width, unsigned int& height)
+    bool TryReadMapDimensions(DWORD terrainCollection, unsigned int& width, unsigned int& height)
     {
         width = 0;
         height = 0;
 
-        DWORD mapSizeHolder = 0;
-        DWORD rawWidth = 0;
-        DWORD rawHeight = 0;
-        if (!SafeReadDword(context + 0x54, mapSizeHolder) ||
-            !mapSizeHolder ||
-            !SafeReadDword(mapSizeHolder + 0x54, rawWidth) ||
-            !SafeReadDword(mapSizeHolder + 0x58, rawHeight) ||
-            !IsKnownMapDimension(rawWidth) ||
-            !IsKnownMapDimension(rawHeight))
+        DWORD terrainData = 0;
+        DWORD terrainGrid = 0;
+        DWORD chunkColumns = 0;
+        DWORD chunksBegin = 0;
+        DWORD chunksEnd = 0;
+        // Follow the same grid as native TileAt (0x42B23E -> 0x42A0FF).
+        if (!SafeReadDword(terrainCollection, terrainData) ||
+            !terrainData ||
+            !SafeReadDword(terrainData + 0x08, terrainGrid) ||
+            !terrainGrid ||
+            !SafeReadDword(terrainGrid + 0x04, chunkColumns) ||
+            !SafeReadDword(terrainGrid + 0x0C, chunksBegin) ||
+            !SafeReadDword(terrainGrid + 0x10, chunksEnd) ||
+            !TryComputeTerrainMapDimensions(chunkColumns, chunksBegin, chunksEnd, width, height))
             return false;
 
-        width = rawWidth;
-        height = rawHeight;
-        if (rawWidth != s_lastLoggedMapWidth || rawHeight != s_lastLoggedMapHeight)
+        if (width != s_lastLoggedMapWidth || height != s_lastLoggedMapHeight)
         {
-            s_lastLoggedMapWidth = rawWidth;
-            s_lastLoggedMapHeight = rawHeight;
+            s_lastLoggedMapWidth = width;
+            s_lastLoggedMapHeight = height;
             LogFormat(
-                "Obstacle variants category: map scan dimensions=%lux%lu holder=%08lX.",
-                rawWidth,
-                rawHeight,
-                mapSizeHolder);
+                "Obstacle variants category: map scan dimensions=%ux%u terrainGrid=%08lX.",
+                width,
+                height,
+                terrainGrid);
         }
         return true;
     }
@@ -456,13 +449,13 @@ namespace
             !SafeReadDword(context + 0x3C, mapContext) ||
             !mapContext ||
             !SafeReadDword(mapContext + 0x54, selectionManager) ||
-            !selectionManager ||
-            !TryReadMapDimensions(context, mapWidth, mapHeight))
+            !selectionManager)
             return result;
 
         void* terrainCollection = reinterpret_cast<void*>(
             SelectCollection()(reinterpret_cast<void*>(selectionManager), 0));
-        if (!terrainCollection)
+        if (!terrainCollection ||
+            !TryReadMapDimensions(reinterpret_cast<DWORD>(terrainCollection), mapWidth, mapHeight))
             return result;
 
         GridSelectionScanStats stats[kGridSelectionCollectionCount] = {};

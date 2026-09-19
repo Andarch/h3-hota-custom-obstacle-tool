@@ -233,7 +233,7 @@ static const char* InitializeFailureMessage(DWORD result)
     case kPluginInitializeHashFailed:
         return "The plugin could not hash the map editor executable.";
     case kPluginInitializeUnsupportedTarget:
-        return "This map editor executable is not supported by the plugin.";
+        return "This map editor executable or hota_me.dll version is not supported by the plugin.";
     case kPluginInitializeHookFailed:
         return "The plugin found unexpected hook bytes or could not install its hooks.";
     case kPluginInitializeAlreadyFailed:

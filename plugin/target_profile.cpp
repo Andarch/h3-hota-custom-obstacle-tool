@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "target_profile.h"
+#include "logger.h"
 
 #include <bcrypt.h>
 #include <cstring>
@@ -11,7 +12,7 @@ namespace
 {
     constexpr TargetProfile kSupportedProfile =
     {
-        "HotA map editor 1.8.0",
+        "HotA map editor 1.8.1",
         "CCF1E8424D913AA409ECC168F87FB20EDD64C3A56D412F2878065FC261BC6113",
         {
             { "garrison create check", 0x004212A4,
@@ -32,6 +33,16 @@ namespace
             0x004E4960,
         },
     };
+
+    constexpr HotaModuleTargetProfile kHotaModuleProfile =
+    {
+        "HotA 1.8.1",
+        "365EB0C5C01ADBEAEC6A46E12D49BA2C710150270600ACE496496EB432DEA240",
+        0x000CC230, 0x000DD4B0, 0x000DDB54, 0x000DDB61,
+        { 0x8B, 0x4C, 0x24, 0x14, 0x8B, 0x54, 0x24, 0x1C },
+        201, 199,
+    };
+    static_assert(kHotaModuleProfile.randTrnRowCount <= kMaxRandTrnRowCount);
 
     bool HashFile(const char* path, BYTE output[32])
     {
@@ -127,4 +138,52 @@ const TargetProfile* FindTargetProfile(const char* executableSha256)
     }
 
     return nullptr;
+}
+
+const HotaModuleTargetProfile* FindHotaModuleTargetProfile(const char* sha256)
+{
+    if (sha256 && strcmp(sha256, kHotaModuleProfile.sha256) == 0)
+    {
+        return &kHotaModuleProfile;
+    }
+    return nullptr;
+}
+
+const HotaModuleTargetProfile* FindLoadedHotaModuleTargetProfile(std::string& error)
+{
+    HMODULE module = GetModuleHandleA("hota_me.dll");
+    if (!module)
+    {
+        error = "hota_me.dll is not loaded";
+        return nullptr;
+    }
+
+    char path[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameA(module, path, MAX_PATH);
+    if (length == 0 || length == MAX_PATH)
+    {
+        error = "could not resolve hota_me.dll path";
+        return nullptr;
+    }
+
+    char hash[65] = {};
+    if (!ComputeFileSha256(path, hash))
+    {
+        error = "could not hash hota_me.dll";
+        return nullptr;
+    }
+    LogFormat("Target hota_me.dll SHA-256: %s", hash);
+    const auto* profile = FindHotaModuleTargetProfile(hash);
+    if (!profile)
+        error = "unsupported hota_me.dll hash";
+    return profile;
+}
+
+DWORD LegacyRandTrnRowIndex(const HotaModuleTargetProfile& profile, DWORD rowId)
+{
+    if (rowId >= profile.randTrnRowCount || rowId == profile.glacierRandTrnRow)
+        return MAXDWORD;
+
+    // 1.8.1 inserts a glacier row before the former final lava-outcropping row.
+    return rowId > profile.glacierRandTrnRow ? rowId - 1 : rowId;
 }

@@ -19,11 +19,6 @@ namespace
         "HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS";
     constexpr char kVariantTraceEnvVar[] =
         "HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE";
-    constexpr char kExpectedHotaMeSha256[] =
-        "3CE4489A0B891E35C13848C33D1124F750D1A0C96D0B52761CA87BFFF5BC0D8E";
-    constexpr DWORD kHotaObstacleWeightPredicateRva = 0x000C53B0;
-    constexpr DWORD kHotaParserStoreRva = 0x000D6DF4;
-    constexpr DWORD kHotaParserWrapperFallbackRva = 0x000D6E01;
     constexpr DWORD kPredicateStolenLength = 6;
     constexpr DWORD kHotaParserStoreStolenLength = 13;
     constexpr DWORD kHotaParserWrapperFallbackStolenLength = 8;
@@ -57,12 +52,6 @@ namespace
         0x89, 0x43, 0x10,       // mov [ebx+10h], eax
     };
 
-    const BYTE kHotaParserWrapperFallbackExpected[] =
-    {
-        0x8B, 0x4C, 0x24, 0x1C, // mov ecx, [esp+1Ch]
-        0x8B, 0x54, 0x24, 0x18, // mov edx, [esp+18h]
-    };
-
     const BYTE kFinalCandidateRecordExpected[] =
     {
         0x8B, 0x40, 0x10,       // mov eax, [eax+10h]
@@ -86,10 +75,10 @@ namespace
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1,
         1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
     };
-    constexpr DWORD kRandTrnRowCount =
+    constexpr DWORD kLegacyRandTrnRowCount =
         sizeof(kAllowedRandTrnRows) / sizeof(kAllowedRandTrnRows[0]);
 
-    const BYTE kRandTrnTerrainByRow[kRandTrnRowCount] =
+    const BYTE kRandTrnTerrainByRow[kLegacyRandTrnRowCount] =
     {
           0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,
           1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   2,   2,   2,   2,   2,   2,   2,   2,
@@ -141,7 +130,8 @@ namespace
     BYTE s_hotaParserWrapperFallbackOriginal[5] = {};
     BYTE s_objectRecordAssignReturnOriginal[5] = {};
     BYTE s_finalCandidateRecordOriginal[5] = {};
-    BYTE s_extraBlockedRandTrnRows[kRandTrnRowCount] = {};
+    const HotaModuleTargetProfile* s_hotaProfile = nullptr;
+    BYTE s_extraBlockedRandTrnRows[kMaxRandTrnRowCount] = {};
     DWORD s_predicateResume = 0;
     DWORD s_objectsTxtLoaderResume = 0;
     DWORD s_hotaParserStoreResume = 0;
@@ -177,7 +167,16 @@ namespace
         LONG finalRejected;
     };
 
-    VariantTraceRowStats s_variantTraceRows[kRandTrnRowCount] = {};
+    VariantTraceRowStats s_variantTraceRows[kMaxRandTrnRowCount] = {};
+
+    BYTE RandTrnTerrain(DWORD rowId)
+    {
+        if (rowId == s_hotaProfile->glacierRandTrnRow)
+            return 3; // Native snow glacier row added in 1.8.1.
+        const DWORD legacyRow = LegacyRandTrnRowIndex(*s_hotaProfile, rowId);
+        return legacyRow < kLegacyRandTrnRowCount
+            ? kRandTrnTerrainByRow[legacyRow] : kNoReferenceRow;
+    }
 
     bool TryReadCandidateRecordRowId(DWORD record, DWORD& rowId);
     void ClearVariantTraceRows();
@@ -673,33 +672,6 @@ namespace
         return EnsureObjectsOverlayFile(mode) ? s_objectsOverlayResourceName : source;
     }
 
-    bool ValidateHotaMeModule(HMODULE module, std::string& error)
-    {
-        char modulePath[MAX_PATH] = {};
-        const DWORD pathLength = GetModuleFileNameA(module, modulePath, MAX_PATH);
-        if (pathLength == 0 || pathLength == MAX_PATH)
-        {
-            error = "could not resolve hota_me.dll path";
-            return false;
-        }
-
-        char moduleHash[65] = {};
-        if (!ComputeFileSha256(modulePath, moduleHash))
-        {
-            error = "could not hash hota_me.dll";
-            return false;
-        }
-
-        LogFormat("Obstacle filter: hota_me.dll SHA-256: %s", moduleHash);
-        if (strcmp(moduleHash, kExpectedHotaMeSha256) != 0)
-        {
-            error = "unsupported hota_me.dll hash";
-            return false;
-        }
-
-        return true;
-    }
-
     bool IsListSeparator(char value)
     {
         return value == ' ' || value == '\t' || value == ',' || value == ';';
@@ -740,7 +712,7 @@ namespace
                 break;
             }
 
-            if (obstacleId == 0 || obstacleId > kRandTrnRowCount)
+            if (obstacleId == 0 || obstacleId > s_hotaProfile->randTrnRowCount)
             {
                 LogFormat("Obstacle filter: ignored out-of-range obstacleId=%lu from %s.",
                     obstacleId,
@@ -770,11 +742,14 @@ namespace
         if (!SafeReadDword(row, rowId))
             return true;
 
-        if (rowId >= kRandTrnRowCount)
+        if (rowId >= s_hotaProfile->randTrnRowCount)
             return true;
 
+        const DWORD legacyRow = LegacyRandTrnRowIndex(*s_hotaProfile, rowId);
+        // Rows absent from the legacy workbook filter retain native eligibility.
         const bool workbookAllowed =
-            !s_workbookFilterEnabled || kAllowedRandTrnRows[rowId] != 0;
+            !s_workbookFilterEnabled || legacyRow >= kLegacyRandTrnRowCount ||
+            kAllowedRandTrnRows[legacyRow] != 0;
         const bool extraBlocked = s_extraBlockedRandTrnRows[rowId] != 0;
 
         if (!workbookAllowed || extraBlocked)
@@ -898,9 +873,9 @@ namespace
         else if (mode == ObstacleGenerationFilterMode::ThinOnly &&
             thickness == ObstacleThickness::Thin &&
             haveRowId &&
-            rowId < kRandTrnRowCount)
+            rowId < s_hotaProfile->randTrnRowCount)
         {
-            const BYTE terrain = kRandTrnTerrainByRow[rowId];
+            const BYTE terrain = RandTrnTerrain(rowId);
             if (terrain < kTerrainCount)
             {
                 const DWORD referenceRow = s_thinScoringReferenceRows[terrain];
@@ -1041,11 +1016,12 @@ namespace
         if (mode == ObstacleGenerationFilterMode::ThinOnly)
         {
             DWORD rowId = 0;
-            if (SafeReadDword(rowRecord, rowId) && rowId < kRandTrnRowCount)
+            if (SafeReadDword(rowRecord, rowId) && rowId < s_hotaProfile->randTrnRowCount)
             {
+                const DWORD legacyRow = LegacyRandTrnRowIndex(*s_hotaProfile, rowId);
                 for (DWORD terrain = 0; terrain < kTerrainCount; ++terrain)
                 {
-                    if (kThinScoringReferenceRowByTerrain[terrain] == rowId &&
+                    if (kThinScoringReferenceRowByTerrain[terrain] == legacyRow &&
                         s_thinScoringReferenceRows[terrain] == 0)
                     {
                         s_thinScoringReferenceRows[terrain] = rowRecord;
@@ -1230,8 +1206,8 @@ namespace
             popad
             popfd
 
-            mov     ecx, [esp+1Ch]
-            mov     edx, [esp+18h]
+            mov     ecx, [esp+14h]
+            mov     edx, [esp+1Ch]
             jmp     dword ptr [s_hotaParserWrapperFallbackResume]
         }
     }
@@ -1241,7 +1217,7 @@ namespace
         DWORD row = 0;
         if (!SafeReadDword(record + 0x10, row))
             return false;
-        return SafeReadDword(row, rowId) && rowId < kRandTrnRowCount;
+        return SafeReadDword(row, rowId) && rowId < s_hotaProfile->randTrnRowCount;
     }
 
     void ClearVariantTraceRows()
@@ -1258,7 +1234,7 @@ namespace
 
         LogFormat("Obstacle variants trace summary begin mode=%s", modeName);
 
-        for (DWORD rowId = 0; rowId < kRandTrnRowCount; ++rowId)
+        for (DWORD rowId = 0; rowId < s_hotaProfile->randTrnRowCount; ++rowId)
         {
             const VariantTraceRowStats& stats = s_variantTraceRows[rowId];
             if (stats.finalSeen == 0)
@@ -1330,7 +1306,7 @@ bool ObstacleFilterEnabled()
     return WorkbookFilterEnvEnabled() || ExtraBlockListEnvPresent();
 }
 
-bool InstallObstacleFilterHooks(std::string& error)
+bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::string& error)
 {
     const bool rowFilterEnabled = ObstacleFilterEnabled();
     const bool candidateFilterEnabled =
@@ -1341,23 +1317,21 @@ bool InstallObstacleFilterHooks(std::string& error)
         return true;
     }
 
+    HMODULE hotaMe = GetModuleHandleA("hota_me.dll");
+    if (!hotaMe)
+    {
+        error = "hota_me.dll is not loaded";
+        return false;
+    }
+    s_hotaProfile = &profile;
+
     if (rowFilterEnabled)
     {
-        HMODULE hotaMe = GetModuleHandleA("hota_me.dll");
-        if (!hotaMe)
-        {
-            error = "hota_me.dll is not loaded";
-            return false;
-        }
-
-        if (!ValidateHotaMeModule(hotaMe, error))
-            return false;
-
         s_workbookFilterEnabled = WorkbookFilterEnvEnabled();
         InitializeExtraBlockedRows();
 
         BYTE* const moduleBase = reinterpret_cast<BYTE*>(hotaMe);
-        void* const predicate = moduleBase + kHotaObstacleWeightPredicateRva;
+        void* const predicate = moduleBase + profile.obstacleWeightPredicateRva;
         s_predicateResume = reinterpret_cast<DWORD>(predicate) + kPredicateStolenLength;
 
         const HookSpec spec =
@@ -1375,9 +1349,10 @@ bool InstallObstacleFilterHooks(std::string& error)
             return false;
         }
 
-        LogFormat("Obstacle filter installed: predicate=%p workbookFilter=%s allowedRows=159 rejectedRows=41 extraBlockedRows=%lu",
+        LogFormat("Obstacle filter installed: predicate=%p workbookFilter=%s nativeRows=%lu legacyAllowedRows=159 legacyRejectedRows=41 extraBlockedRows=%lu",
             predicate,
             s_workbookFilterEnabled ? "on" : "off",
+            profile.randTrnRowCount,
             s_extraBlockedRowCount);
     }
 
@@ -1409,23 +1384,8 @@ bool InstallObstacleFilterHooks(std::string& error)
             return false;
         }
 
-        HMODULE hotaMe = GetModuleHandleA("hota_me.dll");
-        if (!hotaMe)
-        {
-            error = "hota_me.dll is not loaded for glacier rand_trn fallback";
-            HookRemove(objectsTxtLoader, s_objectsTxtLoaderOriginal);
-            return false;
-        }
-
-        if (!ValidateHotaMeModule(hotaMe, error))
-        {
-            error = std::string("glacier rand_trn fallback: ") + error;
-            HookRemove(objectsTxtLoader, s_objectsTxtLoaderOriginal);
-            return false;
-        }
-
         BYTE* const hotaMeBase = reinterpret_cast<BYTE*>(hotaMe);
-        void* const hotaParserStore = hotaMeBase + kHotaParserStoreRva;
+        void* const hotaParserStore = hotaMeBase + profile.parserStoreRva;
         s_hotaParserStoreResume =
             reinterpret_cast<DWORD>(hotaParserStore) + kHotaParserStoreStolenLength;
 
@@ -1450,7 +1410,7 @@ bool InstallObstacleFilterHooks(std::string& error)
         }
 
         void* const hotaParserWrapperFallback =
-            hotaMeBase + kHotaParserWrapperFallbackRva;
+            hotaMeBase + profile.parserFallbackRva;
         s_hotaParserWrapperFallbackResume =
             reinterpret_cast<DWORD>(hotaParserWrapperFallback) +
             kHotaParserWrapperFallbackStolenLength;
@@ -1458,8 +1418,8 @@ bool InstallObstacleFilterHooks(std::string& error)
         const HookSpec hotaParserWrapperFallbackSpec =
         {
             hotaParserWrapperFallback,
-            kHotaParserWrapperFallbackExpected,
-            sizeof(kHotaParserWrapperFallbackExpected),
+            profile.parserFallbackExpected,
+            sizeof(profile.parserFallbackExpected),
         };
 
         result =

@@ -12,11 +12,6 @@
 namespace
 {
     constexpr char kDiagnosticsEnvVar[] = "HOTA_MAPED_PLUGIN_DIAGNOSTICS";
-    constexpr char kExpectedHotaMeSha256[] =
-        "3CE4489A0B891E35C13848C33D1124F750D1A0C96D0B52761CA87BFFF5BC0D8E";
-
-    constexpr DWORD kHotaParserEntryRva = 0x000D67A0;
-    constexpr DWORD kHotaParserStoreRva = 0x000D6DF4;
     constexpr DWORD kParserEntryStolenLength = 6;
     constexpr DWORD kParserStoreStolenLength = 13;
     constexpr DWORD kFinalCandidateRecordSite = 0x0049E592;
@@ -731,33 +726,6 @@ namespace
         }
     }
 
-    bool ValidateHotaMeModule(HMODULE module, std::string& error)
-    {
-        char modulePath[MAX_PATH] = {};
-        const DWORD pathLength = GetModuleFileNameA(module, modulePath, MAX_PATH);
-        if (pathLength == 0 || pathLength == MAX_PATH)
-        {
-            error = "could not resolve hota_me.dll path";
-            return false;
-        }
-
-        char moduleHash[65] = {};
-        if (!ComputeFileSha256(modulePath, moduleHash))
-        {
-            error = "could not hash hota_me.dll";
-            return false;
-        }
-
-        LogFormat("Obstacle diagnostics: hota_me.dll SHA-256: %s", moduleHash);
-        if (strcmp(moduleHash, kExpectedHotaMeSha256) != 0)
-        {
-            error = "unsupported hota_me.dll hash";
-            return false;
-        }
-
-        return true;
-    }
-
     bool InstallHookOrError(
         const char* name,
         void* target,
@@ -909,7 +877,7 @@ bool ObstacleDiagnosticsEnabled()
     return length > 0 && length < sizeof(value) && EnvValueEnabled(value);
 }
 
-bool InstallObstacleDiagnosticsHooks(std::string& error)
+bool InstallObstacleDiagnosticsHooks(const HotaModuleTargetProfile& profile, std::string& error)
 {
     HMODULE hotaMe = GetModuleHandleA("hota_me.dll");
     if (!hotaMe)
@@ -918,12 +886,9 @@ bool InstallObstacleDiagnosticsHooks(std::string& error)
         return false;
     }
 
-    if (!ValidateHotaMeModule(hotaMe, error))
-        return false;
-
     BYTE* const moduleBase = reinterpret_cast<BYTE*>(hotaMe);
-    void* const parserEntry = moduleBase + kHotaParserEntryRva;
-    void* const parserStore = moduleBase + kHotaParserStoreRva;
+    void* const parserEntry = moduleBase + profile.parserEntryRva;
+    void* const parserStore = moduleBase + profile.parserStoreRva;
     s_parserEntryResume = reinterpret_cast<DWORD>(parserEntry) + kParserEntryStolenLength;
     s_parserStoreResume = reinterpret_cast<DWORD>(parserStore) + kParserStoreStolenLength;
 
