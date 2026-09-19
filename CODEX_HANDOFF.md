@@ -121,6 +121,44 @@ work with the rebuilt DLL.
 
 ## Current Obstacle Button Implementation
 
+### Custom Animal/Miscellaneous Generation Repair (2026-09-19)
+
+The all-land Animals/Miscellaneous test exposed two independent failures:
+the installed game no longer had a loose `Data/objects.txt`, and widened masks
+do not widen native RandTrn weights. The log confirmed every overlay attempt
+failed to read the loose file. Frogs consequently retained native Swamp-only
+generation; plugin-only templates were absent entirely.
+
+- Overlay input now falls back to the editor's native text loader at
+  `0x004DCCE0` (cdecl), preserving native archive decoding. Text resources expose
+  row-pointer begin/end at `+32/+36`; rows expose cell begin/end at `+4/+8`.
+  Release uses virtual method `vtable+4`, as in the native RandTrn parser.
+- Statically verified: the final candidate hook at `0x0049E592` runs before
+  rejection of a null RandTrn pointer, so it can repair unmatched candidates.
+- In selected-button mode, buttons with workbook template overrides receive
+  private per-template scoring rows at that hook. Explicit donors take priority,
+  followed by the native row; unmatched objects use the captured native
+  dirt-rock row (zero-based 9). This also avoids parser-order donor lookup gaps.
+- The template mask intersected with the button mask controls terrain support;
+  Rock/Void is always excluded. Newly enabled terrain weights use 5. When terrain
+  support expands, disabled adjacency modifiers become 5; existing overlap
+  restrictions and native object footprints are retained. Shared native rows
+  are not modified. Copies remain stable through generation and reset before
+  the next run. Unselected candidates remain rejected; vanilla mode bypasses
+  the repair. Workbook files and generated metadata are unchanged.
+- Debug/Release builds and compatibility tests passed, including private-copy
+  isolation, water/void exclusion, sparse masks, null/malformed rows, selection
+  rejection, stable row reuse, and vanilla bypass.
+- Runtime verified in an isolated editor: native archive text loading (1,883
+  object rows), temporary overlay loading through the native loader, and native
+  terrain-predicate acceptance on ten land terrains for representative DEFs
+  from all eleven Animals/Miscellaneous buttons. Water is rejected; Void is
+  checked by unit tests because it has no native terrain-edge table.
+- The user confirmed successful painted-map placement on 2026-09-19 and
+  supplied a screenshot showing animals and miscellaneous objects across
+  multiple land terrains. Undo/redo and mixed-category regression checks have
+  not been separately confirmed. Smoke evidence is in ignored `scratch` files.
+
 The workbook-driven 60-button implementation is now in the source tree. Its
 authoritative inputs are the `Obstacles`, `Button Layout`, and `Button Mapping`
 tabs in:

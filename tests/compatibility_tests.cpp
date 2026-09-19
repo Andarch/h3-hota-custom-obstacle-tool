@@ -11,6 +11,58 @@
 
 namespace
 {
+    void TestSelectedRules()
+    {
+        DWORD source[19] = {};
+        int weights[12];
+        int adjacent[201];
+        int overlap[201];
+        for (int& value : weights) value = -5000;
+        weights[4] = 5;
+        for (int& value : adjacent) value = -5000;
+        for (int& value : overlap) value = -5000;
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        source[0] = 137;
+        source[1] = reinterpret_cast<DWORD>(&holder);
+        source[12] = reinterpret_cast<DWORD>(adjacent);
+        source[13] = source[12] + sizeof(adjacent);
+        source[16] = reinterpret_cast<DWORD>(overlap);
+        source[17] = source[16] + sizeof(overlap);
+        SelectedObjectRules rules;
+        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 0xCFF, rules));
+        for (DWORD i = 0; i < 12; ++i)
+            CHECK(rules.weights[i] == ((i == 8 || i == 9) ? -5000 : 5));
+        CHECK(rules.adjacent[0] == 5 && rules.overlap[0] == -5000);
+        CHECK(weights[0] == -5000 && adjacent[0] == -5000);
+        CHECK(rules.row[1] == reinterpret_cast<DWORD>(&rules.weightPointer));
+        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 1u << 4, rules));
+        CHECK(rules.adjacent[0] == -5000);
+        CHECK(!BuildSelectedObjectRules(0, 0xCFF, rules));
+        source[13] -= 4;
+        CHECK(!BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 0xCFF, rules));
+        source[13] += 4;
+        DWORD object[19] = {};
+        DWORD candidate[5] = {};
+        object[0] = 7000;
+        object[6] = 0xCFF;
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object), reinterpret_cast<DWORD>("crates04.def"));
+        candidate[0] = reinterpret_cast<DWORD>(object);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        s_defaultSelectedRow = reinterpret_cast<DWORD>(source);
+        SetObstacleButtonSelection(0, 0);
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] == 0);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] != 0);
+        const DWORD privateRow = candidate[4];
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] == privateRow);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        candidate[4] = 0;
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] == 0);
+    }
     DWORD testStackBefore;
     DWORD testStackAfter;
     DWORD testFlagsBefore;
@@ -205,6 +257,7 @@ int main()
     CHECK(TryReadCandidateRecordRowId(reinterpret_cast<DWORD>(wrapper), actual));
     CHECK(actual == 200);
 
+    TestSelectedRules();
     TestParserThunks();
     TestPredicateThunk();
     std::puts("PASS: terrain geometry, 1.8.1 profiles, byte guards, row filters/indexing, and x86 hook thunks.");

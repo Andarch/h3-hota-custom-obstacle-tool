@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <map>
 
 namespace
 {
@@ -30,6 +31,7 @@ namespace
     constexpr DWORD kFinalCandidateRecordStolenLength = 5;
     constexpr DWORD kFinalCandidateRejectTarget = 0x0049E69E;
     constexpr DWORD kTerrainCount = 12;
+    constexpr DWORD kNativeTextLoader = 0x004DCCE0;
     constexpr BYTE kNoReferenceRow = 0xFF;
 
     const BYTE kPredicateExpected[] =
@@ -333,6 +335,74 @@ namespace
         return true;
     }
 
+    DWORD LoadNativeText(const char* name)
+    {
+        __try { return reinterpret_cast<DWORD (__cdecl*)(const char*)>(kNativeTextLoader)(name); }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    }
+
+    void ReleaseNativeText(DWORD resource)
+    {
+        __try
+        {
+            const DWORD vtable = *reinterpret_cast<DWORD*>(resource);
+            reinterpret_cast<void (__thiscall*)(DWORD)>(
+                *reinterpret_cast<DWORD*>(vtable + 4))(resource);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    bool CopyNativeTextCell(DWORD address, char* buffer, size_t capacity)
+    {
+        __try
+        {
+            if (!address) { buffer[0] = 0; return true; }
+            for (size_t i = 0; i < capacity; ++i)
+            {
+                buffer[i] = reinterpret_cast<const char*>(address)[i];
+                if (!buffer[i]) return true;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+        return false;
+    }
+
+    bool ReadNativeObjectsText(std::string& contents)
+    {
+        // Use the editor's text resource loader so loose files and encrypted LODs
+        // follow the same precedence and decoding as native obstacle generation.
+        const DWORD resource = LoadNativeText("objects.txt");
+        if (!resource) return false;
+        DWORD begin = 0, end = 0;
+        bool ok = SafeReadDword(resource + 32, begin) &&
+            SafeReadDword(resource + 36, end) && begin && end >= begin &&
+            (end - begin) % 4 == 0 && (end - begin) / 4 <= 20000;
+        contents.clear();
+        for (DWORD p = begin; ok && p < end; p += 4)
+        {
+            DWORD row = 0, cells = 0, cellsEnd = 0;
+            ok = SafeReadDword(p, row) && row &&
+                SafeReadDword(row + 4, cells) && SafeReadDword(row + 8, cellsEnd) &&
+                cellsEnd >= cells && (cellsEnd - cells) % 4 == 0 &&
+                (cellsEnd - cells) / 4 <= 32;
+            for (DWORD c = cells; ok && c < cellsEnd; c += 4)
+            {
+                DWORD cell = 0;
+                char text[1024] = {};
+                ok = SafeReadDword(c, cell) && CopyNativeTextCell(cell, text, sizeof(text));
+                if (ok)
+                {
+                    if (c != cells) contents += '\t';
+                    contents += text;
+                }
+            }
+            contents += "\r\n";
+        }
+        ReleaseNativeText(resource);
+        if (!ok) contents.clear();
+        return ok;
+    }
+
     bool WriteWholeFile(const char* path, const std::string& contents)
     {
         FILE* file = nullptr;
@@ -536,7 +606,7 @@ namespace
         }
 
         std::string source;
-        if (!ReadWholeFile(sourcePath, source))
+        if (!ReadWholeFile(sourcePath, source) && !ReadNativeObjectsText(source))
         {
             LogFormat("Obstacle variants: could not read %s for object overlay.", sourcePath);
             return false;
@@ -785,6 +855,100 @@ namespace
         return true;
     }
 
+    struct SelectedObjectRules
+    {
+        DWORD row[19] = {};
+        DWORD weightPointer = 0;
+        int weights[kTerrainCount] = {};
+        int adjacent[kMaxRandTrnRowCount] = {};
+        int overlap[kMaxRandTrnRowCount] = {};
+    };
+
+    std::map<DWORD, SelectedObjectRules> s_selectedObjectRules;
+    DWORD s_defaultSelectedRow = 0;
+    bool s_selectedRulesFailureLogged = false;
+
+    bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules)
+    {
+        DWORD holder = 0, weights = 0;
+        if (!source || !SafeReadDword(source + 4, holder) ||
+            !SafeReadDword(holder, weights)) return false;
+        for (DWORD i = 0; i < 19; ++i)
+            if (!SafeReadDword(source + i * 4, rules.row[i])) return false;
+        if (!s_hotaProfile || rules.row[0] >= s_hotaProfile->randTrnRowCount)
+            return false;
+        bool expanded = false;
+        for (DWORD terrain = 0; terrain < kTerrainCount; ++terrain)
+        {
+            DWORD value = 0;
+            if (!SafeReadDword(weights + terrain * 4, value)) return false;
+            const int nativeWeight = static_cast<int>(value);
+            const bool allowed = terrain != 9 && (mask & (1u << terrain)) != 0;
+            expanded |= allowed && nativeWeight <= -4000;
+            rules.weights[terrain] = allowed ? (nativeWeight <= -4000 ? 5 : nativeWeight) : -5000;
+        }
+        const DWORD count = s_hotaProfile->randTrnRowCount;
+        if (rules.row[13] < rules.row[12] || rules.row[17] < rules.row[16] ||
+            (rules.row[13] - rules.row[12]) / 4 != count ||
+            (rules.row[17] - rules.row[16]) / 4 != count) return false;
+        for (DWORD i = 0; i < count; ++i)
+        {
+            DWORD adjacent = 0, overlap = 0;
+            if (!SafeReadDword(rules.row[12] + i * 4, adjacent) ||
+                !SafeReadDword(rules.row[16] + i * 4, overlap)) return false;
+            rules.adjacent[i] = static_cast<int>(adjacent);
+            // Expanded terrain support must not retain donor cross-terrain
+            // adjacency bans. Keep overlap restrictions and native footprints.
+            if (expanded && rules.adjacent[i] <= -4000) rules.adjacent[i] = 5;
+            rules.overlap[i] = static_cast<int>(overlap);
+        }
+        rules.weightPointer = reinterpret_cast<DWORD>(rules.weights);
+        rules.row[1] = reinterpret_cast<DWORD>(&rules.weightPointer);
+        rules.row[12] = reinterpret_cast<DWORD>(rules.adjacent);
+        rules.row[13] = rules.row[14] = rules.row[12] + count * 4;
+        rules.row[16] = reinterpret_cast<DWORD>(rules.overlap);
+        rules.row[17] = rules.row[18] = rules.row[16] + count * 4;
+        return true;
+    }
+
+    bool ApplySelectedObjectRules(DWORD record, DWORD objectTemplate, int buttonIndex)
+    {
+        bool custom = false;
+        for (DWORD i = 0; i < ObstacleTemplateOverrideCount(); ++i)
+        {
+            const auto* item = ObstacleTemplateOverrideAt(i);
+            if (item && item->buttonIndex == buttonIndex) { custom = true; break; }
+        }
+        if (!custom) return true;
+        auto found = s_selectedObjectRules.find(objectTemplate);
+        if (found == s_selectedObjectRules.end())
+        {
+            DWORD source = ObstacleBorrowedRowForObjectTemplate(objectTemplate);
+            DWORD native = 0, mask = 0;
+            if (!SafeReadDword(record + 0x10, native) ||
+                !SafeReadDword(objectTemplate + 0x18, mask)) return false;
+            if (!source) source = native ? native : s_defaultSelectedRow;
+            const auto* button = ObstacleButtonDefinitionAt(buttonIndex);
+            if (!button) return false;
+            auto inserted = s_selectedObjectRules.emplace(objectTemplate, SelectedObjectRules{});
+            found = inserted.first;
+            if (!BuildSelectedObjectRules(source, mask & button->terrainMask, found->second))
+            {
+                s_selectedObjectRules.erase(found);
+                if (!s_selectedRulesFailureLogged)
+                {
+                    LogMessage("Obstacle variants: selected-object scoring rules unavailable; rejecting candidate.");
+                    s_selectedRulesFailureLogged = true;
+                }
+                return false;
+            }
+            if (s_selectedObjectRules.size() <= 12)
+                LogFormat("Obstacle variants: private selected-object rules button=%s mask=%03lX sourceRow=%lu fallback=%d",
+                    button->name, mask & button->terrainMask, found->second.row[0], !native && !ObstacleBorrowedRowForObjectTemplate(objectTemplate));
+        }
+        return SafeWriteDword(record + 0x10, reinterpret_cast<DWORD>(found->second.row));
+    }
+
     bool __stdcall ShouldAllowFinalCandidateRecord(DWORD record)
     {
         const auto mode = static_cast<ObstacleGenerationFilterMode>(
@@ -813,7 +977,8 @@ namespace
             GetObstacleThicknessForObjectTemplate(objectTemplate);
         const int buttonIndex = ObstacleButtonIndexForObjectTemplate(objectTemplate);
         const bool allowed = mode == ObstacleGenerationFilterMode::ButtonSelection
-            ? IsObstacleButtonSelected(buttonIndex)
+            ? IsObstacleButtonSelected(buttonIndex) &&
+                ApplySelectedObjectRules(record, objectTemplate, buttonIndex)
             : ObstacleThicknessAllowedInMode(thickness, mode);
 
         DWORD rowId = 0;
@@ -982,6 +1147,9 @@ namespace
 
         if (mode == ObstacleGenerationFilterMode::ButtonSelection)
         {
+            DWORD rowId = 0;
+            if (SafeReadDword(rowRecord, rowId) && rowId == 9)
+                s_defaultSelectedRow = rowRecord; // Native dirt-rock scoring fallback.
             DWORD objectTemplate = 0;
             if (SafeReadDword(wrapper, objectTemplate) && objectTemplate)
                 ObserveObstacleBorrowSourceRow(objectTemplate, rowRecord);
@@ -1535,6 +1703,9 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         s_wastelandStoneRowRecord = 0;
         ZeroMemory(s_thinScoringReferenceRows, sizeof(s_thinScoringReferenceRows));
         ResetObstacleBorrowedRows();
+        s_selectedObjectRules.clear();
+        s_defaultSelectedRow = 0;
+        s_selectedRulesFailureLogged = false;
         ClearVariantTraceRows();
     }
 
