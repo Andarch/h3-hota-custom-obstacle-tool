@@ -170,6 +170,21 @@ namespace
     };
 
     VariantTraceRowStats s_variantTraceRows[kMaxRandTrnRowCount] = {};
+    DWORD s_traceCandidateRow = 0;
+    int s_traceCandidateButton = -1;
+    DWORD s_candidateTerrainMask = 0;
+    DWORD s_candidateObjectTemplate = 0;
+    DWORD s_mountainOrderContinue = 0, s_mountainOrderReject = 0;
+    DWORD s_mountainOrderExceptions = 0;
+    BYTE s_mountainOrderOriginal[5] = {};
+    DWORD s_accumulatorResume = 0;
+    DWORD s_terrainViewTableAddress = 0;
+    BYTE s_accumulatorOriginal[5] = {};
+    DWORD s_accumulatorRelaxations = 0;
+    DWORD s_edgeRelaxations = 0;
+    DWORD s_tracePosition[3] = {};
+    DWORD s_terrainPredicateCounts[kMaxRandTrnRowCount][kTerrainCount][2] = {};
+    std::map<unsigned long long, bool> s_terrainPredicateSamples;
 
     BYTE RandTrnTerrain(DWORD rowId)
     {
@@ -911,6 +926,13 @@ namespace
         return true;
     }
 
+    bool IsSandDuneTemplate(DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0;
+        return objectTemplate && SafeReadDword(objectTemplate + 28, type) && type == 140 &&
+            SafeReadDword(objectTemplate + 32, subtype) && subtype == 6;
+    }
+
     bool ApplySelectedObjectRules(DWORD record, DWORD objectTemplate, int buttonIndex)
     {
         bool custom = false;
@@ -923,7 +945,8 @@ namespace
         if (!SafeReadDword(record + 0x10, native)) return false;
         // A workbook-mapped native object can have no RandTrn subtype row
         // (for example Maple Trees, 140/12). Repair only missing rows here.
-        if (!custom && native) return true;
+        const bool dune = IsSandDuneTemplate(objectTemplate);
+        if (!custom && native && !dune) return true;
         auto found = s_selectedObjectRules.find(objectTemplate);
         if (found == s_selectedObjectRules.end())
         {
@@ -945,6 +968,10 @@ namespace
                 }
                 return false;
             }
+            // Native dune rows forbid self-overlap. Use a private row only for
+            // selected generation, with the same self-overlap weight as mountains.
+            if (dune)
+                found->second.overlap[found->second.row[0]] = 30;
             if (s_selectedObjectRules.size() <= 12)
                 LogFormat("Obstacle variants: private selected-object rules button=%s mask=%03lX sourceRow=%lu fallback=%d",
                     button->name, mask & button->terrainMask, found->second.row[0], !native && !ObstacleBorrowedRowForObjectTemplate(objectTemplate));
@@ -986,6 +1013,19 @@ namespace
 
         DWORD rowId = 0;
         const bool haveRowId = TryReadCandidateRecordRowId(record, rowId);
+        s_traceCandidateRow = 0;
+        s_traceCandidateButton = buttonIndex;
+        s_candidateTerrainMask = 0;
+        s_candidateObjectTemplate = 0;
+        if (allowed && mode == ObstacleGenerationFilterMode::ButtonSelection)
+        {
+            s_candidateObjectTemplate = objectTemplate;
+            SafeReadDword(record + 0x10, s_traceCandidateRow);
+            const auto* button = ObstacleButtonDefinitionAt(buttonIndex);
+            DWORD templateMask = 0;
+            if (button && SafeReadDword(objectTemplate + 0x18, templateMask))
+                s_candidateTerrainMask = templateMask & button->terrainMask;
+        }
         if (s_variantTraceEnabled && haveRowId)
         {
             InterlockedIncrement(&s_variantTraceRows[rowId].finalSeen);
@@ -1304,6 +1344,148 @@ namespace
         }
     }
 
+    __declspec(naked) bool __fastcall NativeTerrainPredicate(DWORD, DWORD, DWORD)
+    {
+        __asm
+        {
+            mov eax, [ecx+4]
+            push esi
+            mov esi, [eax]
+            jmp dword ptr [s_predicateResume]
+        }
+    }
+
+    bool __stdcall AllowMountainOrder(DWORD candidateTemplate, DWORD row, DWORD existing)
+    {
+        if (s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
+            !candidateTemplate || candidateTemplate != s_candidateObjectTemplate ||
+            !row || row != s_traceCandidateRow || !existing ||
+            !IsObstacleButtonSelected(s_traceCandidateButton)) return false;
+        DWORD type = 0, wrapper = 0, otherTemplate = 0, otherType = 0;
+        DWORD otherRow = 0, rowId = 0, overlaps = 0, weight = 0;
+        if (!SafeReadDword(candidateTemplate + 28, type) || type != 134 ||
+            !SafeReadDword(existing + 4, wrapper) || !wrapper ||
+            !SafeReadDword(wrapper, otherTemplate) || !otherTemplate ||
+            !SafeReadDword(otherTemplate + 28, otherType) || otherType != 134 ||
+            !SafeReadDword(wrapper + 16, otherRow) || !otherRow ||
+            !SafeReadDword(otherRow, rowId) || rowId >= kMaxRandTrnRowCount ||
+            !SafeReadDword(row + 64, overlaps) || !overlaps ||
+            !SafeReadDword(overlaps + rowId * 4, weight) || static_cast<int>(weight) <= -5000)
+            return false;
+        ++s_mountainOrderExceptions;
+        return true;
+    }
+
+    __declspec(naked) void MountainOrderHook()
+    {
+        __asm {
+            jz allowed
+            pushfd
+            pushad
+            // Native scorer locals: template at ESP+18h, row at ESP+58h.
+            mov eax, [esp+3Ch]
+            mov ecx, [esp+7Ch]
+            push edx
+            push ecx
+            push eax
+            call AllowMountainOrder
+            test al, al
+            jnz relaxed
+            popad
+            popfd
+            jmp dword ptr [s_mountainOrderReject]
+        relaxed:
+            popad
+            popfd
+        allowed:
+            jmp dword ptr [s_mountainOrderContinue]
+        }
+    }
+
+    bool SelectedTerrainEdgeAllowed(DWORD row, DWORD terrain)
+    {
+        if (s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
+            !row || row != s_traceCandidateRow || terrain >= kTerrainCount || terrain == 9 ||
+            !(s_candidateTerrainMask & (1u << terrain)) ||
+            !IsObstacleButtonSelected(s_traceCandidateButton)) return false;
+        DWORD holder = 0, weights = 0, weight = 0;
+        return SafeReadDword(row + 4, holder) && SafeReadDword(holder, weights) &&
+            SafeReadDword(weights + terrain * 4, weight) && static_cast<int>(weight) > -4000;
+    }
+
+    __declspec(naked) DWORD __fastcall NativeTerrainAccumulator(DWORD, DWORD, DWORD, BYTE*)
+    {
+        __asm
+        {
+            mov eax, dword ptr [s_terrainViewTableAddress]
+            mov eax, [eax]
+            jmp dword ptr [s_accumulatorResume]
+        }
+    }
+
+    bool AccumulateSelectedTerrain(DWORD row, DWORD terrain, BYTE* flags)
+    {
+        if (!flags || !SelectedTerrainEdgeAllowed(row, terrain)) return false;
+        // Preserve other cells' accumulated terrain bits; add only this cell's
+        // actual terrain, without Dirt/Sand inferred from its transition art.
+        flags[terrain] |= 3;
+        ++s_accumulatorRelaxations;
+        return true;
+    }
+
+    DWORD __fastcall SelectedTerrainAccumulator(DWORD row, DWORD terrain, DWORD view, BYTE* flags)
+    {
+        if (AccumulateSelectedTerrain(row, terrain, flags)) return 0;
+        return NativeTerrainAccumulator(row, terrain, view, flags);
+    }
+
+    bool __fastcall TracedTerrainPredicate(DWORD row, DWORD terrain, DWORD view)
+    {
+        if (!ShouldAllowRandTrnRow(row)) return false;
+        const bool result = NativeTerrainPredicate(row, terrain, view);
+        if (s_variantTraceEnabled && row == s_traceCandidateRow &&
+            s_traceCandidateButton >= 0 && terrain < kTerrainCount &&
+            s_generationFilterMode == static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection))
+        {
+            DWORD rowId = 0;
+            if (SafeReadDword(row, rowId) && rowId < kMaxRandTrnRowCount)
+            {
+                ++s_terrainPredicateCounts[rowId][terrain][result ? 1 : 0];
+                const unsigned long long key = (static_cast<unsigned long long>(rowId) << 40) |
+                    (static_cast<unsigned long long>(terrain) << 32) | view;
+                if (s_terrainPredicateSamples.size() < 256 &&
+                    s_terrainPredicateSamples.emplace(key, result).second)
+                {
+                    DWORD holder = 0, weights = 0, dirt = 0, sand = 0, current = 0;
+                    SafeReadDword(row + 4, holder);
+                    SafeReadDword(holder, weights);
+                    SafeReadDword(weights, dirt);
+                    SafeReadDword(weights + 4, sand);
+                    SafeReadDword(weights + terrain * 4, current);
+                    LogFormat("Obstacle boundary trace: position=(%ld,%ld,%ld) button=%s row=%lu terrain=%lu view=%lu nativeAllowed=%d weights=(current:%ld dirt:%ld sand:%ld)",
+                        s_tracePosition[0], s_tracePosition[1], s_tracePosition[2],
+                        ObstacleButtonName(s_traceCandidateButton), rowId, terrain, view,
+                        result, current, dirt, sand);
+                }
+            }
+        }
+        // Experimental: relax only the secondary terrain-edge gate. Native
+        // footprints, stored terrain weights and overlap checks are untouched.
+        if (!result && SelectedTerrainEdgeAllowed(row, terrain))
+        {
+            ++s_edgeRelaxations;
+            return true;
+        }
+        return result;
+    }
+
+    void __stdcall TraceCandidatePosition(DWORD frame)
+    {
+        if (!s_variantTraceEnabled) return;
+        for (DWORD i = 0; i < 3; ++i)
+            SafeReadDword(frame + 8 + i * 4, s_tracePosition[i]);
+    }
+
     __declspec(naked) void HotaObstacleWeightPredicateHook()
     {
         __asm
@@ -1394,6 +1576,15 @@ namespace
     void ClearVariantTraceRows()
     {
         ZeroMemory(s_variantTraceRows, sizeof(s_variantTraceRows));
+        ZeroMemory(s_terrainPredicateCounts, sizeof(s_terrainPredicateCounts));
+        s_terrainPredicateSamples.clear();
+        s_traceCandidateRow = 0;
+        s_traceCandidateButton = -1;
+        s_candidateTerrainMask = 0;
+        s_edgeRelaxations = 0;
+        s_candidateObjectTemplate = 0;
+        s_mountainOrderExceptions = 0;
+        s_accumulatorRelaxations = 0;
     }
 
     void DumpVariantTraceRows(ObstacleGenerationFilterMode mode)
@@ -1421,6 +1612,12 @@ namespace
         }
 
         LogMessage("Obstacle variants trace summary end");
+        for (DWORD row = 0; row < kMaxRandTrnRowCount; ++row)
+            for (DWORD terrain = 0; terrain < kTerrainCount; ++terrain)
+                if (s_terrainPredicateCounts[row][terrain][0] || s_terrainPredicateCounts[row][terrain][1])
+                    LogFormat("Obstacle boundary summary: row=%lu terrain=%lu nativeAllowed=%lu nativeRejected=%lu",
+                        row, terrain, s_terrainPredicateCounts[row][terrain][1],
+                        s_terrainPredicateCounts[row][terrain][0]);
     }
 
     __declspec(naked) void FinalCandidateRecordHook()
@@ -1429,6 +1626,8 @@ namespace
         {
             push    eax
             pushad
+            push    ebp
+            call    TraceCandidatePosition
             push    dword ptr [esp+28]
             call    ShouldAllowFinalCandidateRecord
             test    al, al
@@ -1496,7 +1695,8 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
     }
     s_hotaProfile = &profile;
 
-    if (rowFilterEnabled)
+    s_variantTraceEnabled = VariantTraceEnvEnabled();
+    if (rowFilterEnabled || candidateFilterEnabled || s_variantTraceEnabled)
     {
         s_workbookFilterEnabled = WorkbookFilterEnvEnabled();
         InitializeExtraBlockedRows();
@@ -1513,7 +1713,9 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
         };
 
         const HookResult result =
-            HookInstall(spec, HotaObstacleWeightPredicateHook, s_predicateOriginal);
+            HookInstall(spec, (candidateFilterEnabled || s_variantTraceEnabled)
+                ? reinterpret_cast<void*>(TracedTerrainPredicate)
+                : reinterpret_cast<void*>(HotaObstacleWeightPredicateHook), s_predicateOriginal);
         if (result != HookResult::Success)
         {
             error = std::string("HotA obstacle weight predicate: ") + HookResultName(result);
@@ -1529,6 +1731,32 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
 
     if (candidateFilterEnabled)
     {
+        BYTE expected[5] = { 0xA1 };
+        s_terrainViewTableAddress = reinterpret_cast<DWORD>(hotaMe) + profile.terrainViewTableRva;
+        memcpy(expected + 1, &s_terrainViewTableAddress, sizeof(DWORD));
+        void* accumulator = reinterpret_cast<BYTE*>(hotaMe) + profile.terrainAccumulatorRva;
+        s_accumulatorResume = reinterpret_cast<DWORD>(accumulator) + sizeof(expected);
+        const HookSpec accumulatorSpec = { accumulator, expected, sizeof(expected) };
+        const HookResult accumulatorResult = HookInstall(accumulatorSpec,
+            reinterpret_cast<void*>(SelectedTerrainAccumulator), s_accumulatorOriginal);
+        if (accumulatorResult != HookResult::Success)
+        {
+            error = std::string("HotA terrain accumulator: ") + HookResultName(accumulatorResult);
+            return false;
+        }
+        LogFormat("Obstacle terrain accumulator experiment installed at %p", accumulator);
+        const BYTE orderExpected[] = { 0x0F, 0x85, 0x10, 0x01, 0x00, 0x00 };
+        BYTE* orderCheck = reinterpret_cast<BYTE*>(hotaMe) + profile.mountainOrderCheckRva;
+        s_mountainOrderContinue = reinterpret_cast<DWORD>(orderCheck) + 6;
+        s_mountainOrderReject = s_mountainOrderContinue + 0x110;
+        const HookSpec orderSpec = { orderCheck, orderExpected, sizeof(orderExpected) };
+        const HookResult orderResult = HookInstall(orderSpec,
+            reinterpret_cast<void*>(MountainOrderHook), s_mountainOrderOriginal);
+        if (orderResult != HookResult::Success)
+        {
+            error = std::string("HotA mountain order experiment: ") + HookResultName(orderResult);
+            return false;
+        }
         s_variantTraceEnabled = VariantTraceEnvEnabled();
 
         void* const objectsTxtLoader =
@@ -1690,8 +1918,14 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
     if (mode == ObstacleGenerationFilterMode::None &&
         previousMode != ObstacleGenerationFilterMode::None)
     {
+        if (s_edgeRelaxations)
+            LogFormat("Obstacle edge experiment: relaxed %lu predicate checks; accumulated %lu actual-terrain cells; native collision checks retained.", s_edgeRelaxations, s_accumulatorRelaxations);
         DumpVariantTraceRows(previousMode);
+        LogFormat("Mountain order experiment: %lu permitted mountain-pair conflicts; other native scoring retained.", s_mountainOrderExceptions);
         CleanupObjectsOverlayFile();
+        s_traceCandidateRow = 0;
+        s_candidateTerrainMask = 0;
+        s_candidateObjectTemplate = 0;
     }
 
     if (mode != ObstacleGenerationFilterMode::None)

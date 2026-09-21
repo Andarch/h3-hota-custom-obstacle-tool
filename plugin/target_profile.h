@@ -37,6 +37,7 @@ struct TargetProfile
     const char* executableSha256;
     ObjectLimitTargetProfile objectLimits;
     EditorResourceTargetProfile editorResources;
+    HookSite minimapObstacleColor;
 };
 
 constexpr DWORD kMaxRandTrnRowCount = 201;
@@ -52,6 +53,9 @@ struct HotaModuleTargetProfile
     BYTE parserFallbackExpected[8];
     DWORD randTrnRowCount;
     DWORD glacierRandTrnRow;
+    DWORD terrainAccumulatorRva;
+    DWORD terrainViewTableRva;
+    DWORD mountainOrderCheckRva;
 };
 
 bool ComputeCurrentExecutableSha256(char output[65]);

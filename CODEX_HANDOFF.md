@@ -1,6 +1,28 @@
 # Codex Project Handoff
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
+
+## Accepted Placement Fixes (2026-09-20)
+
+This status supersedes the pending/revert recommendations in the chronological
+investigation notes below. User testing accepted the terrain-transition fix,
+mountain-only drawing-order exception, volcano minimap correction, and revised
+sand dune self-overlap adjustment.
+
+- Mountains now fill across terrain transitions and the tested residual gaps.
+- Volcano type 157 uses the dark minimap shade, without passability changes.
+- Sand dunes retain native drawing-order checks; their private selected-mode
+  self-overlap weight is 30. The dune drawing-order bypass was rejected and
+  removed after it produced placements that manual dragging also rejected.
+- User confirmed the revised dune generation has no visible ordering issues
+  and leaves only two bottom-row gaps in the test. Manual placement of dunes
+  in those spots is also rejected. These gaps are accepted; this does not
+  establish that every possible layout is maximally filled.
+- Further object-specific adjustments are deferred. Do not broaden the
+  mountain exception to dunes or other families without new evidence.
+- Debug/Release Win32 builds, compatibility suites and isolated probes passed.
+  Source maps, workbook, game binaries and extracted assets are not changed
+  or included in this checkpoint.
 
 ## Purpose
 
@@ -120,6 +142,252 @@ sizes, and overflow-sized inputs. The user confirmed that greying and placement
 work with the rebuilt DLL.
 
 ## Current Obstacle Button Implementation
+
+### Mountain Boundary Diagnostics (2026-09-20)
+
+The user reports one-tile gaps along terrain transitions with mountains only.
+The terrain-edge predicate is runtime verified to reject some edge candidates;
+its contribution to the final gaps is not established by that result alone.
+
+When the existing `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE=1` flag is set,
+the guarded HotA predicate entry now wraps the original native predicate and
+records its original result before the experimental override below. It records selected-candidate row/button,
+caller position triple, terrain/view index, and terrain/Dirt/Sand weights.
+Detailed samples are capped at 256 row/terrain/view combinations; per-row and
+terrain acceptance/rejection totals are logged at generation end. The existing
+final-candidate hook captures the caller position from EBP+8/+12/+16; ordinary
+launches now also install the predicate wrapper when candidate filtering is enabled.
+The previously unsafe score-return hook remains untouched.
+
+Debug/Release builds and compatibility tests passed, including trace-wrapper
+true/false result preservation. Both trace-enabled builds passed isolated native
+parser/predicate smoke tests.
+
+Runtime verified from the user's 2026-09-20 reproduction and read-only live
+terrain-view table inspection:
+- At position (17,14,0), Dirt Mountains row 6 on Dirt/view 5 have current
+  weight 10 but nativeAllowed=0. Views 4/5/6/7 resolve to edge type 9, which
+  additionally requires Sand weight > -5000; this row's Sand weight is -5000.
+  Interior Dirt/view 25 resolves to edge type 0 and is accepted.
+- Swamp Mountains row 69 on Swamp/view 8/9/11 have current weight 10 but
+  nativeAllowed=0. Those views resolve to type 4, which also checks Dirt;
+  this row's Dirt weight is -5000. Swamp/view 78 is type 27, checking both
+  Dirt and Sand, and is also rejected.
+- Own-terrain rejection totals include Dirt row 6: 192, Grass row 38: 432,
+  Swamp row 69: 696, Subterranean row 106: 384, Wasteland row 187: 384.
+  These are predicate calls, not unique map tiles. Sand, Snow, Rough, Lava,
+  and Highlands mountain rows had no own-terrain predicate rejections in
+  this run, so terrain-edge rejection alone does not explain every gap.
+Evidence: ignored `scratch/mountain-boundary-trace-2026-09-20.log` and
+`scratch/read_boundary_types.ps1`.
+
+Experimental terrain-edge relaxation (runtime executed, no visible improvement):
+- Only in ButtonSelection mode, an otherwise rejected predicate may pass for
+  the current allowed candidate row when its button remains selected, both
+  template and button permit the tile terrain, and its current-terrain weight
+  is greater than -4000. Void and out-of-range terrain IDs remain rejected.
+- The original native predicate executes first. Footprint, overlap, weights,
+  and subsequent native scoring are unchanged. No score-return hook is added.
+- Candidate context is maintained without the trace flag. Generation cleanup
+  clears it and logs the number of relaxed checks.
+- Debug/Release Win32 builds, compatibility tests, and isolated native parser
+  smoke tests passed. Tests cover wrong rows/terrains, disabled weights,
+  deselection, and unchanged native results outside ButtonSelection mode.
+- User repeated mountain-only placement on 2026-09-20 and reported the same
+  boundary strips. The Debug log (initialization 21:21:38) confirms 2,389
+  selected-object edge checks were relaxed. Thus this override executes but
+  is insufficient to remove the visible gaps; the remaining cause is unproven.
+- Do not broaden the bypass into scoring, footprint, or overlap checks without
+  further evidence. Recommend reverting the behavioral experiment; it remains
+  present and uncommitted pending that decision. Diagnostic work is separable.
+
+Read-only follow-up, statically verified against the 1.8.1 IDA database:
+- `hota_me.dll` RVA `0xCC3F0` is HotA's scorer. Its adapter at approximately
+  RVA `0xCE1F0` calls it at `0xCE206` with the last argument zero. Another
+  caller at `0xCD167` uses the alternate decorative-object path. Decompiler
+  call signatures omit register arguments in places; inspect assembly before
+  implementing any hook.
+- The scorer checks each applicable footprint cell's actual terrain against
+  the template mask at +0x14 (not the plugin button mask at +0x18), rejects
+  Void, and separately checks tile flags. Do not remove these checks.
+- At RVA `0xCC6BA`, it calls terrain accumulation helper `0xCC2E0` with the
+  row, actual terrain, view, and a temporary terrain-flags array. Flag bit 2
+  marks actual terrain; bit 1 marks terrain whose weight must be counted.
+  Transition types add Dirt/Sand to bit 1 even when they are not the cell's
+  actual terrain, independently of the previously wrapped predicate.
+- For an accumulated terrain with weight <= -4000, multi-cell candidates
+  return hard-failure score -2000000001. Thus Dirt weight 10 plus an edge-
+  derived Sand weight -5000 still fails after the first predicate is relaxed.
+  Single-cell candidates have a distinct low-score fallback. This mechanism
+  is statically proven; no scorer-return trace was installed in this session.
+- Adjacent/overlap tables and ordering checks run separately afterward. A
+  possible narrow experiment would accumulate only actual terrain for eligible
+  selected candidates, retaining masks, flags, collision checks, and later
+  scoring. Do not clear a shared accumulated terrain indiscriminately: another
+  footprint cell may actually use it. Implemented experimentally below.
+- Evidence: ignored `scratch/ida_boundary_score.py/.json`, analyzed against
+  the existing scratch 1.8.1 database. No production code or binaries changed
+  during this investigation. A controlled placement test is still needed to
+  prove this removes the strip; arbitrary gap-free packing is not guaranteed.
+
+Second boundary experiment implemented (2026-09-20, pending visual acceptance):
+- The terrain accumulator at RVA 0xCC2E0 now uses actual-terrain flags only
+  for the current allowed selected candidate, gated by the same row, selected
+  button, mask intersection, non-Void terrain and usable weight checks as the
+  predicate experiment. It ORs flags with 3 without clearing earlier cells.
+- All other calls use the native helper. Entry bytes are validated as
+  `A1 C4 BA 17 10` at the preferred base; the embedded address is adjusted to
+  the loaded module base. The thunk replays the table load and resumes +5.
+  RVAs are stored in the 1.8.1 module profile. Installation failures propagate.
+- No actual-terrain template mask, tile flag, overlap, ordering, or subsequent
+  score checks are bypassed. Generation logs report both experimental counters.
+- Debug/Release Win32 solution builds and compatibility tests passed. Tests
+  cover gating, preserved accumulated flags, excluded terrains, and native
+  fastcall fallback stack cleanup. Isolated Debug/Release editor probes passed:
+  real Dirt/view 5 accumulates Dirt=3/Sand=1 natively and Dirt=3/Sand=0 through
+  the selected helper; fallback restores native behavior. Full painted-map
+  placement remains for user testing. Nothing committed.
+
+Residual gap investigation (2026-09-20):
+- User confirmed the transition strips are resolved, but isolated holes remain.
+  Reproduction: `C:\Users\Andy\Repos\obstacle_test.h3m`, surface (4,23,0),
+  manually placeable `avlmtdr1.def`; the saved map leaves the hole empty.
+- Read-only binary inspection in ignored `scratch/inspect_gap_map.py` decoded
+  147 templates and 1,202 static obstacle records, with 128 trailing bytes.
+  The inferred object-section layout validates every template index and all
+  five reserved bytes per record. Reconstructed local blocked cells match the
+  screenshot: rows 20-22 and 24-25 filled, only x=4 empty on row 23 nearby.
+- At anchor (4,23), this DEF blocks 12 cells: (0..3,21), (0..4,22),
+  (2..4,23). Eleven already overlap mountains; only (4,23) is newly blocked.
+- Extracted 1.8.1 RandTrn Dirt mountain weights: Dirt mountain adjacency 100,
+  overlap 30; Swamp mountain adjacency/overlap -5000. Swamp mountains directly
+  below the candidate make adjacency a specific hypothesis, not a proven
+  runtime rejection. Drawing-order conflicts and candidate traversal remain
+  alternatives. Same-terrain overlap is not categorically prohibited.
+- No scorer trace for this exact saved state has run yet. Do not claim the
+  final rejection cause or change collision/adjacency rules based solely on
+  the static snapshot. No map, workbook, or production code was changed.
+
+Targeted isolated scorer probe (supersedes the untraced status above):
+- Runtime verified in a disposable private-desktop editor, not the user's
+  open editor. `scratch/gap_probe.cpp/.vcxproj` initializes the native generator
+  with 0x49D666, resolves wrappers by validated source-table order, and adds
+  125 nearby saved obstacles through native 0x49B7DB/0x49E41F. The fixture
+  contains source terrain/view data for the surface and neighbors within
+  x<=20, y=10..36; it is not a full loaded-map reproduction. Original saved
+  object order is preserved. No candidate object is placed or map saved.
+- Constructor cells default to unpainted (flag 0x08000000). The probe clears
+  that flag to reproduce painted eligibility. Initial unpainted runs failed
+  before terrain accumulation and are not evidence of the residual-gap cause.
+- Native scorer 1.8.1 RVA 0xCC3F0 returns -2000000001 at (4,23,0). With the
+  same actual-terrain accumulator behavior as the plugin, it processes all
+  12 blocked cells and still returns that hard-failure score.
+- An observational hook at RVA 0xCCD45 replays expected bytes
+  `C7 44 24 10 FF 6B CA 88` and resumes +8 without changing flags or score.
+  It captures the rejected existing object's state before native cleanup:
+  source template index 460 (`avlmtdr2.def`), anchor (5,23), flags +20..23
+  = 01 01 01 01, overlap weight EAX=30. Both depth-order flags are set;
+  the conditional branch at RVA 0xCCC2F therefore rejects this placement.
+- Read-only comparisons using native 0x49B5EE depth matrices also find a
+  conflict with `avlmtdr1.def` at (2,23). The runtime observed first rejection
+  is the (5,23) object, not an adjacency-weight rejection.
+- Conclusion: this exact candidate has a generator drawing-order conflict in
+  the reconstructed final state, despite manual placement acceptance. This
+  does not prove it was attempted in the original generation run or diagnose
+  all remaining holes. Do not bypass ordering globally. No production hooks,
+  builds, workbook, saved map, or user editor were modified for this probe.
+  Evidence remains ignored in `scratch/gap_fixture.bin`, `gap_probe.txt`,
+  `gap_helpers_*.json`, and the probe sources.
+
+Mountain-only order experiment (2026-09-20, pending user visual testing):
+- Added a separate guarded hook at module-profile RVA 0xCCC2F. Expected
+  bytes `0F 85 10 01 00 00`; original fallthrough is +6, rejection +0x116.
+  The thunk preserves registers/flags and checks the original condition first.
+- Only active in ButtonSelection with the current allowed candidate template
+  and row and a selected button. Both candidate and conflicting object must
+  have native type 134 (mountain), and the candidate row's overlap weight for
+  the existing object's row must be greater than -5000. Other types, missing
+  rows, prohibited overlaps, and modes retain native drawing-order behavior.
+- No adjacency penalties, terrain/paint restrictions, or later score handling
+  are changed. Generation logs count permitted mountain-pair conflicts.
+- Isolated probe now compiles the production helper/thunk directly. For the
+  saved gap reconstruction, score changes from hard rejection -2000000001 to
+  low-priority fallback -2000000000 with one exception; there is no subsequent
+  hard rejection. Outside ButtonSelection the hard rejection returns. This is
+  not a positive score or proof of eventual placement; native fallback choice
+  and adjacency penalties still apply.
+- Debug/Release Win32 builds, compatibility tests, and isolated initialization/
+  parser probes pass. Regression tests cover non-mountains, prohibited overlap,
+  row bounds, deselection, wrong candidate context, and inactive mode. No map
+  was modified and nothing committed. Keep this experiment separate from the
+  successful transition fix when deciding what to retain.
+
+Minimap Lava discrepancy (2026-09-20):
+- User accepted the mountain-only order experiment visually: remaining actual
+  holes are in dunes. Lighter Lava minimap spots persist after save/reopen.
+- Read-only inspection of the latest `obstacle_test.h3m` (1,246 objects)
+  finds all 432 actual Lava tiles covered by saved blocked footprints.
+- Statically verified: minimap paint 0x487B8F examines blocking object masks,
+  then asks a selected object's virtual color method. Default object color
+  0x4421A6 uses an object-type bitset, not simply aggregate passability.
+  Initializer 0x441E0D uses 48 type IDs at 0x536890..0x536950. Mountain 134,
+  dunes 148 and volcano 158 are included; volcano 157 is absent.
+- Runtime verified in an isolated HotA 1.8.1 editor WITHOUT the plugin:
+  real color method 0x4421A6 returns Lava 0x2529 for type 157 (same as type 0),
+  versus 0x14A5 for types 134,148,158. The fixture exercises the native method
+  with minimal type-bearing objects; it does not render the full minimap.
+- Saved volcano types include 157 (AVLvol10/20/40/60.def) and 158
+  (AVLvol30/50.def). Thus blocking volcanoes of type 157 can use the light
+  passable-looking shade. This is native color classification, not evidence
+  of missing Lava collision coverage or a transient refresh problem.
+- Implemented a separate display-only fix in `plugin/minimap.cpp`. Guarded
+  EXE hook 0x4421DE expects `81 FE E8 00 00 00` (`cmp esi,232`) and resumes
+  at 0x4421E4. For local color-list index 157 only, substitutes 158, then
+  replays the comparison. Native palette selection, other registers, stack
+  and the comparison flags are preserved. No object metadata, placement,
+  passability or map footprints change. Both target hashes are checked first;
+  hook installation failures propagate through explicit initialization.
+- Runtime verified: isolated native color calls for all 232 types across all
+  12 terrain IDs, without plugin and with Debug/Release builds. Only type 157
+  changes (Void has identical colors); Lava now returns dark 0x14A5. Debug
+  and Release match exactly. Both Win32 builds and compatibility suites pass.
+  User confirmed the full minimap looks correct.
+  Evidence: ignored `scratch/ida_minimap.py/.json`, `minimap_probe.cpp/.txt`,
+  and updated read-only map inspector. Map and production binaries unchanged.
+
+Sand dune overlap experiment (2026-09-20):
+- Latest revision: user observed bad dune placement that manual dragging also
+  rejects. Removed the dune drawing-order exception; only mountain pairs may
+  bypass that check again. Retained the private dune self-overlap weight of 30.
+  The initial combined experiment below is historical, not the current policy.
+- Revised isolated scorer probe permits 115 additional placements (previously
+  152), all with zero drawing-order exceptions. Debug/Release builds and both
+  compatibility suites pass, including rejection of dune-pair order bypass.
+  User subsequently accepted full-map appearance, with two remaining bottom
+  gaps also rejecting manual dune placement. General equivalence to manual
+  placement for every layout is not claimed.
+- Correction to the shorthand above: the workbook's Sand Dunes are the six
+  AVLmtdn1..6.def templates, native type 140/subtype 6, not type 148.
+- Runtime verified in an isolated native generator: all six use RandTrn row
+  165, Sand weight 10, and self-overlap -5000. Therefore the mountain-only
+  drawing-order exception alone cannot fix their gaps.
+- Selected generation now builds a private dune row through the existing
+  selected-object rules mechanism. Only its self-overlap weight becomes 30
+  (matching mountains). Native rows, other overlap entries, adjacency rules,
+  terrain restrictions, and footprints remain unchanged.
+- The guarded drawing-order helper additionally accepts dune-to-dune pairs
+  (both type 140/subtype 6), still requiring a permitted overlap weight and
+  selected candidate context. Mixed dune/mountain and other type 140 pairs
+  remain excluded. No new hook sites were added.
+- Runtime probe `scratch/dune_probe.cpp` places one native dune on Sand in a
+  disposable generator, then scores six dune candidates at 64 anchors each.
+  152 previously hard-rejected placements become accepted; examples score 43
+  with one drawing-order exception. This is a synthetic scorer test, not a
+  guarantee that full-map generation fills every hole. User testing pending.
+- Debug/Release Win32 builds, compatibility tests and isolated plugin startup
+  pass. Tests cover dune subtype checks, mixed-pair exclusion, prohibited
+  overlap, private self-overlap adjustment and unchanged source/other weights.
+  No workbook or saved map changes. Nothing committed.
 
 ### Maple Generation and Shortcut Regression (2026-09-19)
 

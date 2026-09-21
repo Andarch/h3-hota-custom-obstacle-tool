@@ -32,6 +32,8 @@ namespace
             0x004DB240,
             0x004E4960,
         },
+        { "minimap volcano color", 0x004421DE,
+            { 0x81, 0xFE, 0xE8, 0x00, 0x00, 0x00 }, 6 },
     };
 
     constexpr HotaModuleTargetProfile kHotaModuleProfile =
@@ -41,6 +43,8 @@ namespace
         0x000CC230, 0x000DD4B0, 0x000DDB54, 0x000DDB61,
         { 0x8B, 0x4C, 0x24, 0x14, 0x8B, 0x54, 0x24, 0x1C },
         201, 199,
+        0x000CC2E0, 0x0017BAC4,
+        0x000CCC2F,
     };
     static_assert(kHotaModuleProfile.randTrnRowCount <= kMaxRandTrnRowCount);
 
