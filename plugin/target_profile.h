@@ -38,6 +38,10 @@ struct TargetProfile
     ObjectLimitTargetProfile objectLimits;
     EditorResourceTargetProfile editorResources;
     HookSite minimapObstacleColor;
+    HookSite duneFillPass;
+    HookSite duneFillCapture;
+    DWORD generateObstacleCell;
+    DWORD obstacleCellEligible;
 };
 
 constexpr DWORD kMaxRandTrnRowCount = 201;

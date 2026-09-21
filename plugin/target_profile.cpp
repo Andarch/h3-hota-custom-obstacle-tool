@@ -34,6 +34,12 @@ namespace
         },
         { "minimap volcano color", 0x004421DE,
             { 0x81, 0xFE, 0xE8, 0x00, 0x00, 0x00 }, 6 },
+        { "dune gap-fill pass", 0x0049E9E4,
+            { 0x39, 0x7B, 0x20, 0x8B, 0x73, 0x14 }, 6 },
+        { "dune painted-cell snapshot", 0x0049E8DF,
+            { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14 }, 6 },
+        0x0049E452,
+        0x00499F70,
     };
 
     constexpr HotaModuleTargetProfile kHotaModuleProfile =

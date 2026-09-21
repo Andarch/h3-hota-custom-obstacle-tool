@@ -13,5 +13,7 @@ enum class ObstacleGenerationFilterMode
 bool ObstacleFilterEnabled();
 struct HotaModuleTargetProfile;
 bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::string& error);
+struct TargetProfile;
+bool InstallDuneFillHook(const TargetProfile& profile, std::string& error);
 void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode);
 void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask);

@@ -171,6 +171,15 @@ namespace
 
     VariantTraceRowStats s_variantTraceRows[kMaxRandTrnRowCount] = {};
     DWORD s_traceCandidateRow = 0;
+    bool s_duneFillActive = false;
+    DWORD s_duneFillContinue = 0;
+    DWORD s_generateObstacleCell = 0;
+    DWORD s_obstacleCellEligible = 0;
+    BYTE s_duneFillOriginal[5] = {};
+    BYTE s_duneCaptureOriginal[5] = {};
+    DWORD s_duneCaptureContinue = 0;
+    DWORD s_duneCapturedGenerator = 0;
+    BYTE s_dunePaintedCells[252 * 252 * 2] = {};
     int s_traceCandidateButton = -1;
     DWORD s_candidateTerrainMask = 0;
     DWORD s_candidateObjectTemplate = 0;
@@ -933,6 +942,21 @@ namespace
             SafeReadDword(objectTemplate + 32, subtype) && subtype == 6;
     }
 
+    bool IsDuneFillerTemplate(DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0;
+        return objectTemplate && SafeReadDword(objectTemplate + 28, type) && type == 148 &&
+            SafeReadDword(objectTemplate + 32, subtype) && subtype == 0;
+    }
+
+    bool SandDunesSelected()
+    {
+        for (int i = 0; i < kObstacleButtonCount; ++i)
+            if (strcmp(ObstacleButtonName(i), "Sand Dunes") == 0)
+                return IsObstacleButtonSelected(i);
+        return false;
+    }
+
     bool ApplySelectedObjectRules(DWORD record, DWORD objectTemplate, int buttonIndex)
     {
         bool custom = false;
@@ -1006,8 +1030,11 @@ namespace
         const ObstacleThickness thickness =
             GetObstacleThicknessForObjectTemplate(objectTemplate);
         const int buttonIndex = ObstacleButtonIndexForObjectTemplate(objectTemplate);
-        const bool allowed = mode == ObstacleGenerationFilterMode::ButtonSelection
-            ? IsObstacleButtonSelected(buttonIndex) &&
+        const bool allowed = s_duneFillActive
+            ? IsDuneFillerTemplate(objectTemplate)
+            : mode == ObstacleGenerationFilterMode::ButtonSelection
+            ? !(SandDunesSelected() && IsDuneFillerTemplate(objectTemplate)) &&
+                IsObstacleButtonSelected(buttonIndex) &&
                 ApplySelectedObjectRules(record, objectTemplate, buttonIndex)
             : ObstacleThicknessAllowedInMode(thickness, mode);
 
@@ -1376,6 +1403,106 @@ namespace
         return true;
     }
 
+    void __stdcall CaptureDunePaint(DWORD generator)
+    {
+        s_duneCapturedGenerator = 0;
+        if (s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
+            !SandDunesSelected()) return;
+        DWORD grid = 0, width = 0, height = 0, levels = 0;
+        if (!SafeReadDword(generator + 20, grid) || !grid ||
+            !SafeReadDword(generator + 24, width) || width == 0 || width > 252 ||
+            !SafeReadDword(generator + 28, height) || height == 0 || height > 252 ||
+            !SafeReadDword(generator + 32, levels) || levels == 0 || levels > 2) return;
+        ZeroMemory(s_dunePaintedCells, sizeof(s_dunePaintedCells));
+        for (DWORD i = 0; i < width * height * levels; ++i)
+        {
+            DWORD terrain = 0, flags = 0;
+            if (!SafeReadDword(grid + 48 * i + 36, terrain) ||
+                !SafeReadDword(grid + 48 * i + 40, flags)) return;
+            s_dunePaintedCells[i] = (terrain & 63) == 1 &&
+                (flags & 0x04000000) && !(flags & 0x08000000);
+        }
+        s_duneCapturedGenerator = generator;
+    }
+
+    __declspec(naked) void DuneCaptureHook()
+    {
+        __asm
+        {
+            pushfd
+            pushad
+            push ecx
+            call CaptureDunePaint
+            popad
+            popfd
+            push ebp
+            mov ebp, esp
+            sub esp, 14h
+            jmp dword ptr [s_duneCaptureContinue]
+        }
+    }
+
+    void __stdcall FillDuneGaps(DWORD generator)
+    {
+        if (s_duneFillActive || generator != s_duneCapturedGenerator ||
+            s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
+            !SandDunesSelected()) return;
+        DWORD grid = 0, width = 0, height = 0, levels = 0;
+        if (!SafeReadDword(generator + 20, grid) || !grid ||
+            !SafeReadDword(generator + 24, width) || width == 0 || width > 252 ||
+            !SafeReadDword(generator + 28, height) || height == 0 || height > 252 ||
+            !SafeReadDword(generator + 32, levels) || levels == 0 || levels > 2) return;
+        DWORD attempted = 0;
+        s_duneFillActive = true;
+        __try
+        {
+            for (DWORD z = 0; z < levels; ++z)
+                for (DWORD y = 0; y < height; ++y)
+                    for (DWORD x = 0; x < width; ++x)
+                    {
+                        const DWORD index = x + width * (y + height * z);
+                        if (!s_dunePaintedCells[index]) continue;
+                        const DWORD cell = grid + 48 * index;
+                        DWORD terrain = 0, flags = 0;
+                        if (!SafeReadDword(cell + 36, terrain) || (terrain & 63) != 1 ||
+                            !SafeReadDword(cell + 40, flags) ||
+                            (flags & 0x08000000)) continue;
+                        // Recheck native eligibility after every placement. The
+                        // native candidate loop requires its blocked mask to cover this cell.
+                        if (!reinterpret_cast<BOOL (__thiscall*)(DWORD)>(s_obstacleCellEligible)(cell))
+                            continue;
+                        ++attempted;
+                        reinterpret_cast<void (__thiscall*)(DWORD, int, int, int, int)>(
+                            s_generateObstacleCell)(generator, x, y, z, 0);
+                    }
+        }
+        __finally
+        {
+            s_duneFillActive = false;
+            s_duneCapturedGenerator = 0;
+            s_candidateObjectTemplate = 0;
+            s_traceCandidateRow = 0;
+            s_candidateTerrainMask = 0;
+        }
+        LogFormat("Dune gap-fill pass: attempted %lu remaining painted Sand cells.", attempted);
+    }
+
+    __declspec(naked) void DuneFillPassHook()
+    {
+        __asm
+        {
+            pushfd
+            pushad
+            push ebx
+            call FillDuneGaps
+            popad
+            popfd
+            cmp [ebx+20h], edi
+            mov esi, [ebx+14h]
+            jmp dword ptr [s_duneFillContinue]
+        }
+    }
+
     __declspec(naked) void MountainOrderHook()
     {
         __asm {
@@ -1575,6 +1702,8 @@ namespace
 
     void ClearVariantTraceRows()
     {
+        s_duneCapturedGenerator = 0;
+        s_duneFillActive = false;
         ZeroMemory(s_variantTraceRows, sizeof(s_variantTraceRows));
         ZeroMemory(s_terrainPredicateCounts, sizeof(s_terrainPredicateCounts));
         s_terrainPredicateSamples.clear();
@@ -1674,6 +1803,32 @@ namespace
 bool ObstacleFilterEnabled()
 {
     return WorkbookFilterEnvEnabled() || ExtraBlockListEnvPresent();
+}
+
+bool InstallDuneFillHook(const TargetProfile& profile, std::string& error)
+{
+    const auto& capture = profile.duneFillCapture;
+    s_duneCaptureContinue = capture.address + static_cast<DWORD>(capture.expectedLength);
+    const HookSpec captureSpec = { reinterpret_cast<void*>(capture.address), capture.expectedBytes, capture.expectedLength };
+    const auto captureResult = HookInstall(captureSpec, DuneCaptureHook, s_duneCaptureOriginal);
+    if (captureResult != HookResult::Success)
+    {
+        error = std::string(capture.name) + ": " + HookResultName(captureResult);
+        return false;
+    }
+    const auto& site = profile.duneFillPass;
+    s_duneFillContinue = site.address + static_cast<DWORD>(site.expectedLength);
+    s_generateObstacleCell = profile.generateObstacleCell;
+    s_obstacleCellEligible = profile.obstacleCellEligible;
+    const HookSpec spec = { reinterpret_cast<void*>(site.address), site.expectedBytes, site.expectedLength };
+    const auto result = HookInstall(spec, DuneFillPassHook, s_duneFillOriginal);
+    if (result != HookResult::Success)
+    {
+        error = std::string(site.name) + ": " + HookResultName(result);
+        return false;
+    }
+    LogMessage("Dune gap-fill pass installed before native selection cleanup.");
+    return true;
 }
 
 bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::string& error)

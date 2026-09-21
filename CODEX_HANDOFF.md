@@ -1,6 +1,57 @@
 # Codex Project Handoff
 
-Last updated: 2026-09-20
+Last updated: 2026-09-21
+
+## Next Chat Starting Point
+
+- Work on `main`, targeting HotA 1.8.1 only. The latest small-dune filler pass
+  is user-tested and accepted; no further placement changes are requested.
+- The user confirmed the final dune result with both normal and passability
+  views: the previously remaining gaps are filled and the appearance is good.
+  This supersedes the accepted two-gap limitation documented on September 20.
+- Preserve the mountain-only drawing-order exception. Dunes must retain native
+  drawing-order checks; their rejected bypass must not be restored.
+- Current workbook: `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles_1.8.1.xlsx`.
+  Read it in place for future requested icon/data updates; no workbook edits
+  were needed for this filler feature. Test map: `C:\Users\Andy\Repos\obstacle_test.h3m`.
+- Debug and Release Win32 builds, compatibility tests and isolated startup
+  checks passed for this feature. User visual testing is now complete.
+- Changes are in obstacle_filter.cpp/.h, target_profile.cpp/.h, dllmain.cpp
+  and compatibility_tests.cpp. Scratch diagnostics are local/ignored; the
+  committed handoff records their findings and hook byte guards below.
+- Leave unrelated `tools/__pycache__/` files out of commits. Do not modify
+  original game binaries, map files or workbook without a specific request.
+
+## Small Dune Gap Fill (2026-09-21)
+
+- Implemented and user visually accepted: when Sand Dunes is selected,
+  defer type 148/subtype 0 (AVLdun10/20/30.def) until a second native pass.
+  Their workbook Hills classification is unchanged. Hills-only generation
+  retains normal first-pass behavior; with Sand Dunes selected, these three
+  templates are reserved for gap filling even if Hills is also selected.
+- Statically verified: EXE 0x49E8DF runs native per-cell placement 0x49E452
+  before clearing selection eligibility. A guarded entry hook at 0x49E8DF
+  (`55 8B EC 83 EC 14`, resume +6) snapshots painted Sand cells. Native
+  placement consumes flag 0x04000000 even when it leaves a gap, so checking
+  that flag only after generation is insufficient (runtime verified).
+- Guarded hook 0x49E9E4 (`39 7B 20 8B 73 14`, resume +6) runs the filler
+  loop before native cleanup. Both hook thunks preserve registers and flags
+  and replay stolen instructions. Addresses and bytes are in TargetProfile.
+- Each saved painted Sand cell is rechecked with native eligibility 0x499F70
+  and unpainted flag 0x08000000 before calling 0x49E452. That routine enumerates
+  only candidate anchors whose blocked mask covers the target cell. During
+  this pass, the existing candidate filter allows only type 148/subtype 0,
+  independently of Hills selection. No new overlap or drawing-order bypass
+  is used; native small-dune overlap and adjacency weights are retained.
+- Runtime verified in a disposable native generator: first-pass-only test
+  generated 20 large dunes and left two gaps; filler added two small dunes
+  and closed both. A repeat fill attempt added nothing. An actual hooked
+  0x49E8DF run generated 19 large plus three small dunes with zero gaps.
+  Random runs vary. Evidence: ignored scratch/dune_fill_probe.cpp/.txt and
+  dune_pass_analysis.py/.txt/.asm. These isolated probes were followed by
+  successful user-map visual testing on 2026-09-21.
+- Regression tests cover first-pass deferral, Hills-only behavior, filler type
+  restrictions and painted-Sand snapshot exclusions. No workbook/map changes.
 
 ## Accepted Placement Fixes (2026-09-20)
 

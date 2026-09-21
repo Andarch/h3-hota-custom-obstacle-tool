@@ -93,6 +93,49 @@ namespace
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         CHECK(candidate[4] == 0);
     }
+    void TestDuneFillPolicy()
+    {
+        DWORD object[19] = {};
+        DWORD row[19] = {};
+        DWORD candidate[5] = {};
+        object[0] = 7100; object[7] = 148; object[8] = 0; object[6] = 2;
+        candidate[0] = reinterpret_cast<DWORD>(object);
+        candidate[4] = reinterpret_cast<DWORD>(row);
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object),
+            reinterpret_cast<DWORD>("AVLdun10.def"));
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        SetObstacleButtonSelection(4, 0);
+        s_duneFillActive = true;
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        object[8] = 1; CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        object[7] = 140; object[8] = 6;
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        object[7] = 148; object[8] = 0;
+        s_duneFillActive = false;
+        SetObstacleButtonSelection(MAXDWORD & ~4u, MAXDWORD);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+
+        DWORD generator[9] = {};
+        DWORD cells[4][12] = {};
+        generator[5] = reinterpret_cast<DWORD>(cells);
+        generator[6] = 4; generator[7] = 1; generator[8] = 1;
+        for (auto& cell : cells) { cell[9] = 1; cell[10] = 0x06000000; }
+        cells[1][9] = 0;
+        cells[2][10] |= 0x08000000;
+        cells[3][10] = 0x02000000;
+        SetObstacleButtonSelection(4, 0);
+        CaptureDunePaint(reinterpret_cast<DWORD>(generator));
+        CHECK(s_duneCapturedGenerator == reinterpret_cast<DWORD>(generator));
+        CHECK(s_dunePaintedCells[0] && !s_dunePaintedCells[1] &&
+            !s_dunePaintedCells[2] && !s_dunePaintedCells[3]);
+        SetObstacleButtonSelection(0, 0);
+        CaptureDunePaint(reinterpret_cast<DWORD>(generator));
+        CHECK(!s_duneCapturedGenerator);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+    }
+
     DWORD testStackBefore;
     DWORD testStackAfter;
     DWORD testFlagsBefore;
@@ -393,6 +436,7 @@ int main()
     TestParserThunks();
     TestPredicateThunk();
     TestMountainOrder();
+    TestDuneFillPolicy();
     std::puts("PASS: terrain geometry, 1.8.1 profiles, byte guards, row filters/indexing, and x86 hook thunks.");
     return 0;
 }

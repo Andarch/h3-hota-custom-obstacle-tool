@@ -101,6 +101,13 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
 
     if (ObstacleVariantsEnabled())
     {
+        if (!InstallDuneFillHook(*profile, error))
+        {
+            LogFormat("Dune fill installation failed: %s", error.c_str());
+            s_initializeResult = kPluginInitializeHookFailed;
+            InterlockedExchange(&s_initializeState, 3);
+            return s_initializeResult;
+        }
         LogMessage("Obstacle variant UI requested.");
         if (!InitializeObstacleDefImages(*profile, error))
         {
