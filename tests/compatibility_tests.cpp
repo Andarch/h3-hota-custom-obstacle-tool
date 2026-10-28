@@ -345,8 +345,11 @@ namespace
 #pragma optimize("", on)
 }
 
+void TestObstacleSelectionLayers();
+
 int main()
 {
+    TestObstacleSelectionLayers();
     unsigned int width = 0;
     unsigned int height = 0;
     for (DWORD size = 36; size <= 252; size += 36)
@@ -437,6 +440,6 @@ int main()
     TestPredicateThunk();
     TestMountainOrder();
     TestDuneFillPolicy();
-    std::puts("PASS: terrain geometry, 1.8.1 profiles, byte guards, row filters/indexing, and x86 hook thunks.");
+    std::puts("PASS: painted map layers, terrain geometry, 1.8.1 profiles, byte guards, row filters/indexing, and x86 hook thunks.");
     return 0;
 }

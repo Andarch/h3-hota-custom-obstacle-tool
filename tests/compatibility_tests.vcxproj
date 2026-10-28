@@ -37,10 +37,14 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="compatibility_tests.cpp" />
+    <ClCompile Include="obstacle_selection_tests.cpp" />
+    <ClCompile Include="..\plugin\obstacle_def_images.cpp" />
+    <ClCompile Include="..\plugin\obstacle_preview.cpp" />
     <ClCompile Include="..\plugin\hook.cpp" />
     <ClCompile Include="..\plugin\logger.cpp" />
     <ClCompile Include="..\plugin\target_profile.cpp" />

@@ -30,8 +30,7 @@ namespace
     constexpr int kCategoryRuleGap = 15;
     constexpr int kCategoryRuleOffset = 7;
     constexpr int kScrollWheelStep = kCategoryButtonExtent + kCategoryRowGap;
-    constexpr int kGridSelectionCollectionCount = 16;
-    constexpr int kObstaclePaintCollectionIndex = 0;
+    constexpr int kMapLayerCount = 2;
     constexpr int kObstaclePaintCellState = 2;
     constexpr DWORD kPollIntervalMs = 50;
     constexpr DWORD kObstacleUpdateCaptureAddress = 0x00484C9A;
@@ -112,6 +111,13 @@ namespace
     using SelectCollectionFn = DWORD(__thiscall*)(void*, int);
     using TileAtFn = DWORD* (__thiscall*)(void*, int, int);
     using CellStateAtFn = int(__thiscall*)(void*, unsigned int, unsigned int, unsigned char);
+
+    struct SelectionAccess
+    {
+        SelectCollectionFn selectCollection;
+        TileAtFn tileAt;
+        CellStateAtFn cellStateAt;
+    };
 
     struct GridSelectionScanStats
     {
@@ -258,7 +264,8 @@ namespace
         int collectionIndex,
         unsigned int mapWidth,
         unsigned int mapHeight,
-        GridSelectionScanStats& stats)
+        GridSelectionScanStats& stats,
+        const SelectionAccess& access)
     {
         bool found = false;
 
@@ -269,7 +276,7 @@ namespace
                 for (unsigned int x = 0; x < mapWidth; ++x)
                 {
                     const int cellState =
-                        CellStateAt()(selection, x, y, static_cast<unsigned char>(collectionIndex));
+                        access.cellStateAt(selection, x, y, static_cast<unsigned char>(collectionIndex));
                     if (cellState == 0)
                         continue;
 
@@ -288,7 +295,7 @@ namespace
                     if (y > stats.maxY)
                         stats.maxY = y;
 
-                    DWORD* tile = TileAt()(terrainCollection, static_cast<int>(x), static_cast<int>(y));
+                    DWORD* tile = access.tileAt(terrainCollection, static_cast<int>(x), static_cast<int>(y));
                     if (tile)
                     {
                         const DWORD tileValue = *tile;
@@ -338,11 +345,11 @@ namespace
         AppendTraceText(summary, sizeof(summary), offset, "mask=0x%08lX", mask);
 
         DWORD totalCells = 0;
-        for (int index = 0; index < kGridSelectionCollectionCount; ++index)
+        for (int index = 0; index < kMapLayerCount; ++index)
             totalCells += stats[index].paintedCells;
         AppendTraceText(summary, sizeof(summary), offset, " totalCells=%lu", totalCells);
 
-        for (int index = 0; index < kGridSelectionCollectionCount; ++index)
+        for (int index = 0; index < kMapLayerCount; ++index)
         {
             const GridSelectionScanStats& stat = stats[index];
             if (stat.paintedCells == 0)
@@ -436,10 +443,9 @@ namespace
         return true;
     }
 
-    PaintedTerrainScan ComputePaintedTerrainScan()
+    PaintedTerrainScan ComputePaintedTerrainScan(DWORD context, const SelectionAccess& access)
     {
         PaintedTerrainScan result = {};
-        DWORD context = s_lastObstacleUiContext;
         if (!context)
             return result;
 
@@ -447,6 +453,8 @@ namespace
         DWORD selection = 0;
         DWORD mapContext = 0;
         DWORD selectionManager = 0;
+        DWORD mapData = 0;
+        DWORD undergroundFlags = 0;
         unsigned int mapWidth = 0;
         unsigned int mapHeight = 0;
         if (!SafeReadDword(context + 0x98, mode) ||
@@ -456,35 +464,44 @@ namespace
             !SafeReadDword(context + 0x3C, mapContext) ||
             !mapContext ||
             !SafeReadDword(mapContext + 0x54, selectionManager) ||
-            !selectionManager)
+            !selectionManager ||
+            !SafeReadDword(selectionManager, mapData) ||
+            !mapData ||
+            !SafeReadDword(mapData + 0x10, undergroundFlags))
             return result;
 
-        void* terrainCollection = reinterpret_cast<void*>(
-            SelectCollection()(reinterpret_cast<void*>(selectionManager), 0));
-        if (!terrainCollection ||
-            !TryReadMapDimensions(reinterpret_cast<DWORD>(terrainCollection), mapWidth, mapHeight))
-            return result;
-
-        GridSelectionScanStats stats[kGridSelectionCollectionCount] = {};
-        const bool trace = CategoryTraceEnabled();
-        const int firstCollection = trace ? 0 : kObstaclePaintCollectionIndex;
-        const int endCollection = trace ? kGridSelectionCollectionCount : kObstaclePaintCollectionIndex + 1;
-        for (int index = firstCollection; index < endCollection; ++index)
+        // Match native command 0x484B07: generate each painted layer, with layer 1
+        // present only when the map's underground byte (0x429E28) is nonzero.
+        GridSelectionScanStats stats[kMapLayerCount] = {};
+        const int layerCount = (undergroundFlags & 0xFF) != 0 ? 2 : 1;
+        for (int index = 0; index < layerCount; ++index)
         {
+            void* terrainCollection = reinterpret_cast<void*>(
+                access.selectCollection(reinterpret_cast<void*>(selectionManager), index));
+            if (!terrainCollection ||
+                !TryReadMapDimensions(reinterpret_cast<DWORD>(terrainCollection), mapWidth, mapHeight))
+                return PaintedTerrainScan{};
+
             AddGridSelectionTerrainMask(
                 reinterpret_cast<void*>(selection),
                 terrainCollection,
                 index,
                 mapWidth,
                 mapHeight,
-                stats[index]);
+                stats[index],
+                access);
+            result.terrainMask |= stats[index].stateMasks[kObstaclePaintCellState];
+            result.paintedCells += stats[index].stateCounts[kObstaclePaintCellState];
         }
 
-        const GridSelectionScanStats& obstacleStats = stats[kObstaclePaintCollectionIndex];
-        result.terrainMask = obstacleStats.stateMasks[kObstaclePaintCellState];
-        result.paintedCells = obstacleStats.stateCounts[kObstaclePaintCellState];
         TraceGridSelectionStats(result.terrainMask, stats);
         return result;
+    }
+
+    PaintedTerrainScan ComputePaintedTerrainScan()
+    {
+        return ComputePaintedTerrainScan(s_lastObstacleUiContext,
+            { SelectCollection(), TileAt(), CellStateAt() });
     }
 
     bool NativePlaceObstaclesEnabled(HWND toolbar)

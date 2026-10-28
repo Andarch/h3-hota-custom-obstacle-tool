@@ -22,6 +22,12 @@ Terrain geometry tests cover all seven map sizes and reject malformed chunk
 vectors, unsupported dimensions, and overflow-sized values. This calculation
 is shared with the production painted-terrain scanner.
 
+`obstacle_selection_tests.cpp` exercises the production UI scanner using native-layout
+map headers and tile/selection adapters. Cases cover underground-only paint,
+both layers painted at matching coordinates with different terrains, surface-only
+paint, cleared/non-obstacle selections, unchecked categories, inactive tools,
+and single-layer maps that must never query underground.
+
 Selected-object rule tests cover private weight/adjacency copies, preserved
 overlap bans, land versus water/void masks, sparse masks, malformed native rows,
 unselected candidate rejection, row reuse, and vanilla-mode bypass.

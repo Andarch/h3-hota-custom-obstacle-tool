@@ -1,9 +1,15 @@
 # Codex Project Handoff
 
-Last updated: 2026-09-21
+Last updated: 2026-10-28
 
 ## Next Chat Starting Point
 
+- All 60 buttons now have workbook-defined icons and previews. The final 14
+  buttons were regenerated on 2026-10-28; only visual metadata changed.
+  Generator validation and Debug/Release Win32 builds pass. The user accepted
+  the icon updates and requested this checkpoint be committed and pushed.
+- Underground Place Obstacles enablement is corrected (2026-10-27); see below.
+  Both Win32 builds and automated tests pass; visual editor acceptance is pending.
 - Work on `main`, targeting HotA 1.8.1 only. The latest small-dune filler pass
   is user-tested and accepted; no further placement changes are requested.
 - The user confirmed the final dune result with both normal and passability
@@ -14,13 +20,80 @@ Last updated: 2026-09-21
 - Current workbook: `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles_1.8.1.xlsx`.
   Read it in place for future requested icon/data updates; no workbook edits
   were needed for this filler feature. Test map: `C:\Users\Andy\Repos\obstacle_test.h3m`.
-- Debug and Release Win32 builds, compatibility tests and isolated startup
-  checks passed for this feature. User visual testing is now complete.
-- Changes are in obstacle_filter.cpp/.h, target_profile.cpp/.h, dllmain.cpp
-  and compatibility_tests.cpp. Scratch diagnostics are local/ignored; the
-  committed handoff records their findings and hook byte guards below.
+- Latest checkpoint includes the underground scanner fix, its regression tests,
+  and the completed button visuals. Small-dune placement remains user-accepted;
+  underground visual testing is still pending as recorded below.
 - Leave unrelated `tools/__pycache__/` files out of commits. Do not modify
   original game binaries, map files or workbook without a specific request.
+
+## Remaining Button Visuals (2026-10-28)
+
+- Regenerated from `obstacles_1.8.1.xlsx` with `HotA_1.8.1_txt/edobjts.txt`.
+  Added icons/previews for Rocks, Tree Remains, Bones, Frogs, Chickens,
+  Roosters, Pigs, Crates, Barrels, Sacks, Ropes, Abandoned Boats, Burnt
+  Structures, and Crumbled Structures.
+- Verified exactly 14 visual-only row changes from the previous generated
+  file. All 60 buttons now have icon/preview definitions. Terrain masks,
+  layout, selected defaults, DEF mappings, and generation overrides unchanged.
+- Generator validation and sequential Debug/Release Win32 solution builds
+  pass. Workbook read in place without edits; no extracted assets included.
+  The user accepted the completed icon updates and requested commit/push.
+
+## Flowers and Mushrooms Button Visuals (2026-10-28)
+
+- Regenerated from `obstacles_1.8.1.xlsx` with `HotA_1.8.1_txt/edobjts.txt`.
+  This update changes only Flowers and Mushrooms visual metadata, preserving
+  the previous Bushes update and all generation data.
+- Flowers icon: `avgflh13.def`. Preview: `avgflh13.def`, `avgflh19.def`,
+  `avgflh07.def`, `avgflh10.def`.
+- Mushrooms icon: `avrmsh06.def`. Preview: `avrmsh06.def`, `swpmsh05.def`,
+  `avlms100.def`, `avlms120.def`.
+- Generator validation and Debug/Release Win32 solution builds pass. Workbook
+  read in place without edits; no extracted assets included. User accepted the
+  update before proceeding to the remaining buttons.
+
+## Bushes Button Visuals (2026-10-28)
+
+- Regenerated button data from the user's updated `obstacles_1.8.1.xlsx`, using
+  `HotA_1.8.1_txt/edobjts.txt` for validation. Only the Bushes row changed.
+- Icon: `avls09s0.def`. Preview: `avls09s0.def`, `avls04s0.def`,
+  `avls01s0.def`, `avlsh7d0.def`. Native resource loading supplies the images;
+  no extracted assets are included. Terrain masks and generation data unchanged.
+- Generator validation and Debug/Release Win32 solution builds pass. Workbook
+  read in place without edits. User accepted the update before proceeding to
+  Flowers and Mushrooms.
+
+## Underground Obstacle Enablement (2026-10-27)
+
+- User reported that painting underground on a two-layer map never enabled
+  Place Obstacles. The plugin scanner was hard-coded to terrain collection 0
+  and selection layer 0. This also omitted underground category applicability.
+- Statically verified in existing IDA analysis: native UI update `0x484C8E`
+  enables for surface selection or, when underground exists, underground
+  selection. Native command `0x484B07` generates both painted layers, regardless
+  of which layer is currently displayed. Helper `0x429E28` reads the underground
+  byte at `[*mapManager + 0x10]`; `0x429EBD` selects terrain collection 0/1.
+  Native input predicate `0x48016A` tests selection state 2 for its layer via
+  `0x43C114`. These EXE addresses are unchanged in the supported 1.8.1 profile.
+- `obstacle_variants.cpp` now scans each existing layer with its corresponding
+  terrain collection and dimensions, ORs terrain masks, and sums state-2 counts.
+  Single-layer maps never query layer 1. Category tracing now inspects only the
+  existing map layers rather than 16 presumed collections. No hooks or native
+  placement behavior changed.
+- Automated verification: Debug/Release Win32 solution builds and compatibility
+  suites pass. New tests exercise the production scanner with native-layout
+  headers and adapters, covering underground-only, combined, surface-only,
+  cleared/non-obstacle paint, unchecked categories, and single-layer exclusion.
+- Runtime verified in disposable 1.8.1 editor processes on a private desktop:
+  Debug and Release plugin initialization passed; a scanner probe calling the
+  real `0x429EBD`, `0x42B23E`, and `0x43C114` with synthetic two-layer grids
+  detected underground-only Subterranean paint, combined it with surface Snow,
+  excluded underground on single-layer maps, and returned empty after clearing.
+  Local evidence: ignored `scratch/underground_probe.cpp/.vcxproj` and existing
+  `scratch/smoke/hota181_smoke.exe`. No user maps or original binaries modified.
+- Pending: visual acceptance of painting, category enablement, and generation
+  underground in the user's normal editor workflow. Synthetic native-grid
+  verification does not establish visual placement acceptance.
 
 ## Small Dune Gap Fill (2026-09-21)
 
