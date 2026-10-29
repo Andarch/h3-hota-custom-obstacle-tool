@@ -4,6 +4,9 @@ Last updated: 2026-10-28
 
 ## Next Chat Starting Point
 
+- Tightened Default/Custom radio spacing: option width is capped at 88 pixels
+  instead of stretching each option across half the panel; narrow panels still
+  use half-width options.
 - User accepted the panel updates on 2026-10-28, including collapsed startup and
   the first-visit flash fix, and requested this checkpoint be committed/pushed.
   This checkpoint includes obstacle-only scope (garrison hooks removed),

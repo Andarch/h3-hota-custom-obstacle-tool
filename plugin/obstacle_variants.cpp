@@ -1635,12 +1635,13 @@ namespace
             parent, nullptr, s_pluginModule, state);
         if (!host) { delete state; return nullptr; }
         bool created = true;
+        const int radioWidth = width / 2 < 88 ? width / 2 : 88;
         for (int index = 0; index < 2; ++index)
         {
-            // Fit the native panel's four-button width as well as wider panels.
+            // Keep the options together on wide panels and fit narrow panels.
             state->radios[index] = CreateWindowExA(0, "BUTTON", index ? "Custom" : "Default",
-                WS_CHILD | WS_VISIBLE | BS_RADIOBUTTON, index * (width / 2), 0,
-                width / 2, 22, host, reinterpret_cast<HMENU>(static_cast<INT_PTR>(index + 1)),
+                WS_CHILD | WS_VISIBLE | BS_RADIOBUTTON, index * radioWidth, 0,
+                radioWidth, 22, host, reinterpret_cast<HMENU>(static_cast<INT_PTR>(index + 1)),
                 s_pluginModule, nullptr);
             HWND radio = state->radios[index];
             if (!radio || !SetWindowSubclass(radio, SelectionButtonSubclass, 1, 0))
