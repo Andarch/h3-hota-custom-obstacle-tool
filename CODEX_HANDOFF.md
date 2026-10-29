@@ -4,9 +4,54 @@ Last updated: 2026-10-29
 
 ## Next Chat Starting Point
 
+- User accepted the latest workbook updates and Reefs ordering on 2026-10-29,
+  and requested this checkpoint be committed and pushed. Current UI has 91
+  buttons in twelve categories, with Reefs second, Lakes, Craters and Fissures.
+  This supersedes pending visual notes for these category/icon updates. Broader
+  painted-map and underground regression status remains as recorded below.
+- Reefs moved to the second category (2026-10-29), immediately after Mountains,
+  by regenerating from the updated v2 workbook with the standard CLI. Current
+  order: Mountains, Reefs, Hills, Mounds, Lakes, Craters, Fissures, Trees,
+  Undergrowth, Debris, Animals, Miscellaneous. Counts remain 91 buttons / twelve
+  categories. Statically verified masks, selections, visuals, all 880 DEF-to-button
+  assignments and 28 override payloads are unchanged after resolving reordered
+  indices. Debug/Release Win32 builds and compatibility suites pass.
+- Craters / Fissures update (2026-10-29): current v2 workbook mappings split
+  Damaged Ground into Craters (8) and Fissures (6), rename the six `Cracks`
+  buttons to `Fissures`, and rename Liquids to Lakes (11). Regenerated metadata
+  contains 91 buttons in twelve categories. 40x40 buttons / 36x36 icons and
+  expansion controls are retained. User accepted the update.
+- User corrected Button Layout (2026-10-29). The standard generator now succeeds
+  directly against the workbook and produces byte-identical header/source files
+  to the tested Craters/Fissures update. No temporary normalization is needed.
+- Before that correction, generation replaced the stale layout's `Liquids`
+  header with `Lakes`, `Damaged Ground` with `Craters`, changed ` Cracks` to
+  ` Fissures` in button names, and inserted a `Fissures` header immediately
+  before the `Dirt Fissures` row, all in memory. Other layout order is preserved.
+  Workbook was untouched by Codex; this temporary normalization is now historical.
+- Statically verified against the preceding generated data: the same 880 DEF
+  hashes, borrow indices, 28 override payloads, terrain masks, default selections
+  and icon/preview definitions are retained after accounting for the renames.
+  Debug/Release Win32 builds and compatibility suites pass; both DLLs initialize
+  in isolated 1.8.1 editors with native object-limit bytes unchanged.
+- Liquids / Damaged Ground update (2026-10-29): regenerated from the current
+  `obstacles_1.8.1_v2.xlsx` using `HotA_1.8.1_txt/edobjts.txt`. Lowered Ground
+  is replaced by Liquids (11 buttons) and Damaged Ground (14 buttons), giving
+  91 buttons in eleven categories. Layout, terrain masks and icon/preview DEFs
+  follow the workbook. Lava is now Lava-only; Subterranean Lava has its own
+  button. The workbook's Hills header is corrected, so the normal generator
+  CLI now works without the earlier in-memory A8 correction.
+- Statically verified: all 880 mapped DEF hashes and borrow-source indices,
+  28 derived template override payloads and 12 borrowed sources are retained;
+  layout-dependent button indices are regenerated. No raw assets or workbook
+  edits. Accepted 40x40 buttons / 36x36 icons and expansion controls remain.
+- Verification: Debug/Release Win32 builds and compatibility suites pass,
+  including independent packing and candidate selection for all 91 buttons.
+  Both DLLs initialize in isolated 1.8.1 editors with native object-limit bytes
+  unchanged. User accepted the new categories/icons.
 - User accepted the workbook/category updates, 40x40 buttons with 36x36 icons,
   and expansion toggle on 2026-10-29, and requested this checkpoint be committed
-  and pushed. Current panel has 70 buttons in ten categories. Visual acceptance
+  and pushed. That earlier panel had 70 buttons in ten categories. Visual acceptance
   supersedes the pending UI notes below; broader painted-map regression and
   underground visual acceptance remain limited to the evidence already recorded.
 - Added a 28x28 Expand All / Collapse All toggle (2026-10-29), right-aligned
@@ -23,11 +68,12 @@ Last updated: 2026-10-29
   as separate Hills (7 buttons) and Mounds (4 buttons), for ten categories and
   the same 70 buttons. Only category membership, category names and Mounds row
   positions changed; icons, masks, selections and generation data are retained.
-  Workbook Button Layout A8 still says `Hills/Mounds`, while Button Mapping and
+  At that time, Button Layout A8 still said `Hills/Mounds`, while Button Mapping and
   Obstacles say `Hills`. Generation used `read_workbook_sheets`, replaced only
   `sheets["Button Layout"][7]` with `["Hills"]` in memory, then ran the normal
   parse/validation/render functions. Workbook is untouched; the CLI generator
-  will reject the stale heading until A8 is corrected. Debug/Release Win32
+  rejected the stale heading until A8 was corrected in the subsequent Liquids
+  update above. Debug/Release Win32
   builds and compatibility suites pass; user accepted the category split.
 - Obstacle button size trial (2026-10-29): buttons are now 40x40 with 36x36
   runtime-rendered icons, providing a two-pixel inset. Previous 48x48 buttons
