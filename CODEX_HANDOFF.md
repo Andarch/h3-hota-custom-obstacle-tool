@@ -4,6 +4,80 @@ Last updated: 2026-10-28
 
 ## Next Chat Starting Point
 
+- User accepted the panel updates on 2026-10-28, including collapsed startup and
+  the first-visit flash fix, and requested this checkpoint be committed/pushed.
+  This checkpoint includes obstacle-only scope (garrison hooks removed),
+  category headers, global selection controls, and Default/Custom modes.
+  Panel visual acceptance supersedes the pending UI notes below; broader
+  painted-map regression checks and underground visual acceptance are not
+  established by this feedback. Both Win32 builds and compatibility suites pass.
+- All seven categories now start collapsed (2026-10-28); user expansion still
+  persists across mode/tool switches. Fixed first-visit Custom UI flash: the
+  Obstacle Types label, scroll host and Place overlay are created hidden,
+  including the overlay's positioning call. They are shown only after all
+  controls and layout are ready and the current mode is applied. Previously
+  these windows were visible throughout construction, then hidden in Default.
+  Debug/Release Win32 builds and compatibility suites pass, including collapsed
+  startup and hidden-at-creation scroll host/real Place overlay checks.
+- Added Mode / Default / Custom controls below Brush on 2026-10-28. Default
+  starts every fresh editor session; mode selection persists across tool/panel
+  recreation. Default hides the entire Obstacle Types label/viewport and Place
+  overlay, leaving the native toolbar/command enablement intact. Custom restores
+  saved button selections, category expansion and scroll state. Radio controls
+  reuse non-focus mouse handling, with no persistent native-parent subclass.
+  Default bypasses diagnostic/workbook row filters, prevents custom generation
+  modes, and therefore uses native object sources, parser rows, scoring/order
+  checks and placement passes. The volcano minimap correction is now Custom-only;
+  changing mode invalidates the editor view. Hooks remain installed but take
+  their native paths in Default. No map objects are removed or changed on toggle.
+  Debug/Release Win32 builds and compatibility suites pass. Native-window tests
+  cover radio clicks/check states, hidden controls, preserved selections and
+  expansion, panel recreation, focus and unmodified queued Default commands.
+  Tests also cover Default diagnostic-filter/overlay bypass and the minimap
+  thunk's type/flag/register preservation in both modes. Runtime verified native
+  color calls for all 232 types on all 12 terrains in disposable 1.8.1 editors:
+  Debug and Release Default match vanilla (2,784 cases); Custom changes only
+  type 157 to type 158's colors, and returning Default restores native results.
+  Evidence: ignored `scratch/obstacle_mode_probe.cpp/.vcxproj` and
+  `scratch/obstacle_mode_{vanilla,debug,release}.txt`. The Release probe toggles
+  the flag via its PDB data symbol because optimized setter symbols are absent.
+  User accepted the mode controls visually; full painted-map regression remains
+  unconfirmed.
+- Added global 28x28 Select All/None controls above the first category on
+  2026-10-28, with larger plus/minus strokes and the existing tooltips and
+  non-focus mouse handling. The row scrolls with the categories. These actions
+  update all 60 saved selections, including collapsed and terrain-disabled
+  buttons, refresh counts/bold headers and Place enablement immediately, and
+  preserve expansion state. Per-category controls remain unchanged.
+  Debug/Release Win32 builds and compatibility suites pass; native-window tests
+  cover global clicks, dimensions, disabled/collapsed selections, focus and
+  unchanged expansion. User accepted the global controls visually.
+- Category headers implemented on 2026-10-28: gray clickable rows with a small
+  disclosure arrow, workbook category name, and checked-button count. Text is
+  bold above zero, regular at zero; counts include terrain-disabled selections.
+  Sections expand independently. All categories start collapsed; session-level
+  state survives tool/panel recreation, but is not saved across editor restarts.
+  Collapsing hides selection controls and buttons
+  without changing selected masks or generation. Headers reuse the existing
+  non-focus mouse handling to preserve editor accelerators.
+  Category names are now emitted by the workbook generator; other generated
+  metadata is unchanged. Generator validation, both sequential Win32 builds,
+  and both compatibility suites pass. Native-window tests cover header clicks,
+  counts, font weights, visibility, unchanged selection masks, panel recreation,
+  focus preservation, preview clearing, and scrollbar clamping. Header rendering
+  was inspected with a local GDI preview and accepted by the user in the editor.
+  Debug/Release initialization passes in disposable 1.8.1 editors.
+- Scope changed on 2026-10-28: this plugin is specific to the obstacle tool.
+  Removed the garrison limit feature, its initialization, source files, project
+  entries, and target-profile hook sites. Native object limits now apply,
+  including the 48-garrison limit. Older garrison/multi-feature plans below
+  are historical and superseded by this decision. Existing maps are not edited.
+  Verification: sequential Debug/Release Win32 solution builds and compatibility
+  suites pass. Runtime verified in disposable private-desktop 1.8.1 editors:
+  both rebuilt DLLs initialize successfully, obstacle hooks still install, and
+  all original bytes at 0x4212A4, 0x4232D4, and 0x426AFA remain unchanged.
+  Evidence: ignored `scratch/obstacle_only_smoke.cpp/.vcxproj`. No painted-map
+  visual regression test was performed for this removal.
 - All 60 buttons now have workbook-defined icons and previews. The final 14
   buttons were regenerated on 2026-10-28; only visual metadata changed.
   Generator validation and Debug/Release Win32 builds pass. The user accepted

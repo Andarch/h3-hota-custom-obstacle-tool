@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "logger.h"
 #include "minimap.h"
-#include "objlimits.h"
 #include "obstacle_def_images.h"
 #include "obstacle_diagnostics.h"
 #include "obstacle_filter.h"
@@ -64,16 +63,6 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
         return s_initializeResult;
     }
     LogFormat("Selected HotA module profile: %s", hotaProfile->name);
-
-    if (!InstallObjectLimitHooks(*profile, error))
-    {
-        LogFormat("Garrison feature installation failed: %s", error.c_str());
-        s_initializeResult = kPluginInitializeHookFailed;
-        InterlockedExchange(&s_initializeState, 3);
-        return s_initializeResult;
-    }
-
-    LogMessage("Garrison feature installed successfully.");
 
     if (!InstallMinimapColorHook(*profile, error))
     {

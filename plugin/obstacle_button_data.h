@@ -30,6 +30,7 @@ struct ObstacleTemplateOverride
 };
 
 bool ObstacleButtonDataAvailable();
+const char* ObstacleCategoryName(int categoryIndex);
 const ObstacleButtonDefinition* ObstacleButtonDefinitionAt(int buttonIndex);
 const char* ObstacleButtonName(int buttonIndex);
 void __stdcall RegisterObstacleButtonDefName(DWORD objectTemplate, DWORD editorString);

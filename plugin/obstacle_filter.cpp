@@ -158,6 +158,7 @@ namespace
     volatile LONG s_archFallbackAssignments = 0;
     volatile LONG s_thinScoringRowOverrides = 0;
     volatile LONG s_generationFilterMode = 0;
+    volatile LONG s_customObstacleMode = 0;
     volatile LONG s_selectedButtonMaskLow = 0;
     volatile LONG s_selectedButtonMaskHigh = 0;
     volatile LONG s_buttonBorrowAssignments = 0;
@@ -832,6 +833,7 @@ namespace
 
     bool __stdcall ShouldAllowRandTrnRow(DWORD row)
     {
+        if (!CustomObstacleModeEnabled()) return true;
         DWORD rowId = 0;
         if (!SafeReadDword(row, rowId))
             return true;
@@ -2067,6 +2069,7 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
 
 void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
 {
+    if (!CustomObstacleModeEnabled()) mode = ObstacleGenerationFilterMode::None;
     const auto previousMode = static_cast<ObstacleGenerationFilterMode>(
         InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
 
@@ -2108,4 +2111,15 @@ void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask)
 {
     InterlockedExchange(&s_selectedButtonMaskLow, static_cast<LONG>(lowMask));
     InterlockedExchange(&s_selectedButtonMaskHigh, static_cast<LONG>(highMask));
+}
+
+bool CustomObstacleModeEnabled()
+{
+    return InterlockedCompareExchange(&s_customObstacleMode, 0, 0) != 0;
+}
+
+void SetCustomObstacleMode(bool enabled)
+{
+    if (!enabled) SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+    InterlockedExchange(&s_customObstacleMode, enabled ? 1 : 0);
 }

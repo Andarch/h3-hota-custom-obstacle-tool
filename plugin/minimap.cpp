@@ -2,6 +2,7 @@
 #include "minimap.h"
 #include "hook.h"
 #include "logger.h"
+#include "obstacle_filter.h"
 
 namespace
 {
@@ -12,11 +13,23 @@ namespace
     {
         __asm
         {
+            pushfd
+            pushad
+            call CustomObstacleModeEnabled
+            test al, al
+            jz defaultMode
+            popad
+            popfd
             // ESI is a local color-list index, not the object's stored type.
             cmp esi, 157
             jne nativeCheck
             mov esi, 158
         nativeCheck:
+            cmp esi, 0E8h
+            jmp dword ptr [s_colorContinue]
+        defaultMode:
+            popad
+            popfd
             cmp esi, 0E8h
             jmp dword ptr [s_colorContinue]
         }
@@ -35,6 +48,6 @@ bool InstallMinimapColorHook(const TargetProfile& profile, std::string& error)
         error = std::string(site.name) + ": " + HookResultName(result);
         return false;
     }
-    LogMessage("Minimap volcano type 157 now uses the native dark color lookup.");
+    LogMessage("Minimap volcano color hook installed; correction is active only in Custom mode.");
     return true;
 }

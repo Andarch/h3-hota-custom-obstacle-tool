@@ -88,7 +88,6 @@
     <ClInclude Include="hook.h" />
     <ClInclude Include="logger.h" />
     <ClInclude Include="minimap.h" />
-    <ClInclude Include="objlimits.h" />
     <ClInclude Include="obstacle_button_data.h" />
     <ClInclude Include="obstacle_classification.h" />
     <ClInclude Include="obstacle_def_images.h" />
@@ -106,7 +105,6 @@
     <ClCompile Include="hook.cpp" />
     <ClCompile Include="logger.cpp" />
     <ClCompile Include="minimap.cpp" />
-    <ClCompile Include="objlimits.cpp" />
     <ClCompile Include="obstacle_button_data.cpp" />
     <ClCompile Include="obstacle_classification.cpp" />
     <ClCompile Include="obstacle_def_images.cpp" />

@@ -1,6 +1,7 @@
 // Include the implementation to exercise internal hook thunks without test exports.
 #include "../plugin/obstacle_filter.cpp"
 #include "../plugin/obstacle_selection_geometry.h"
+#include "../plugin/minimap.cpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -346,10 +347,54 @@ namespace
 }
 
 void TestObstacleSelectionLayers();
+void TestObstacleCategorySections();
+void TestObstacleModeControls();
+
+DWORD minimapSeenIndex, minimapSeenFlags, minimapSeenEax;
+__declspec(naked) void MinimapContinueStub()
+{
+    __asm {
+        mov minimapSeenIndex, esi
+        mov minimapSeenEax, eax
+        pushfd
+        pop minimapSeenFlags
+        ret
+    }
+}
+
+void TestMinimapModeThunk()
+{
+    s_colorContinue = reinterpret_cast<DWORD>(MinimapContinueStub);
+    for (int custom = 0; custom < 2; ++custom)
+    {
+        SetCustomObstacleMode(custom != 0);
+        for (DWORD objectType = 0; objectType <= 233; ++objectType)
+        {
+            __asm {
+                pushad
+                mov esi, objectType
+                mov eax, 12345678h
+                call MinimapColorHook
+                popad
+            }
+            const DWORD expected = custom && objectType == 157 ? 158 : objectType;
+            CHECK(minimapSeenIndex == expected);
+            CHECK(minimapSeenEax == 0x12345678);
+            CHECK((minimapSeenFlags & 1) == (expected < 232 ? 1u : 0u));
+            CHECK((minimapSeenFlags & 0x40) == (expected == 232 ? 0x40u : 0u));
+        }
+    }
+    SetCustomObstacleMode(false);
+}
 
 int main()
 {
+    CHECK(!CustomObstacleModeEnabled());
+    TestMinimapModeThunk();
     TestObstacleSelectionLayers();
+    TestObstacleCategorySections();
+    TestObstacleModeControls();
+    SetCustomObstacleMode(true);
     unsigned int width = 0;
     unsigned int height = 0;
     for (DWORD size = 36; size <= 252; size += 36)
@@ -393,6 +438,24 @@ int main()
         HookResult::UnexpectedBytes);
     CHECK(oldFallback[0] == 0x8B && oldFallback[3] == 0x1C && oldFallback[7] == 0x18);
     s_hotaProfile = profile;
+
+    // Default bypasses even explicitly configured diagnostic filters and cannot
+    // start a custom generation pass or redirect the native object source.
+    DWORD defaultRow = 14;
+    s_workbookFilterEnabled = true;
+    s_extraBlockedRandTrnRows[14] = 1;
+    CHECK(!ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&defaultRow)));
+    SetCustomObstacleMode(false);
+    CHECK(ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&defaultRow)));
+    SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+    CHECK(s_generationFilterMode == 0);
+    CHECK(ShouldAllowFinalCandidateRecord(0));
+    const char* nativeSource = "objects.txt";
+    CHECK(MaybeRedirectObjectsTxtSource(nativeSource) == nativeSource);
+    CHECK(!SelectedTerrainEdgeAllowed(0, 0));
+    CHECK(!s_duneFillActive);
+    s_extraBlockedRandTrnRows[14] = 0;
+    SetCustomObstacleMode(true);
 
     for (DWORD row = 0; row < 199; ++row)
     {

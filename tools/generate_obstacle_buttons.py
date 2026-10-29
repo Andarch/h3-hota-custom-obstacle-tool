@@ -532,6 +532,7 @@ def render_header(button_count: int, category_count: int) -> str:
         }};
 
         bool ObstacleButtonDataAvailable();
+        const char* ObstacleCategoryName(int categoryIndex);
         const ObstacleButtonDefinition* ObstacleButtonDefinitionAt(int buttonIndex);
         const char* ObstacleButtonName(int buttonIndex);
         void __stdcall RegisterObstacleButtonDefName(DWORD objectTemplate, DWORD editorString);
@@ -549,6 +550,7 @@ def render_source(
     buttons: list[ButtonDefinition],
     metadata: list[DefMetadata],
     overrides: list[TemplateOverride],
+    categories: list[str],
 ) -> str:
     borrow_hashes = sorted(
         {item.borrow_source_hash for item in metadata if item.borrow_source_hash is not None}
@@ -603,6 +605,10 @@ def render_source(
             "    {",
             *button_rows,
             "    };",
+            "    constexpr const char* kObstacleCategoryNames[] = {",
+            *[f"        {cpp_string(name)}," for name in categories],
+            "    };",
+            "    static_assert(sizeof(kObstacleCategoryNames) / sizeof(kObstacleCategoryNames[0]) == kObstacleCategoryCount);",
             "",
             "    constexpr ObstacleDefMetadata kObstacleDefMetadata[] =",
             "    {",
@@ -720,6 +726,12 @@ def render_source(
             "    }",
             "}",
             "",
+            "const char* ObstacleCategoryName(int categoryIndex)",
+            "{",
+            "    return categoryIndex >= 0 && categoryIndex < kObstacleCategoryCount",
+            '        ? kObstacleCategoryNames[categoryIndex] : "";',
+            "}",
+            "",
             "bool ObstacleButtonDataAvailable()",
             "{",
             "    return kObstacleButtonCount > 0 &&",
@@ -831,7 +843,7 @@ def main() -> int:
         render_header(len(buttons), len(layout_categories)), encoding="ascii", newline="\n"
     )
     args.output.write_text(
-        render_source(buttons, metadata, overrides), encoding="ascii", newline="\n"
+        render_source(buttons, metadata, overrides, layout_categories), encoding="ascii", newline="\n"
     )
     borrow_count = len(
         {item.borrow_source_hash for item in metadata if item.borrow_source_hash is not None}

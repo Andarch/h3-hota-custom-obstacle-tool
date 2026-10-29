@@ -12,19 +12,6 @@ struct HookSite
     SIZE_T expectedLength;
 };
 
-struct ObjectLimitTargetProfile
-{
-    HookSite createCheck;
-    HookSite predicateCheck;
-    HookSite placeCheck;
-    DWORD createAllow;
-    DWORD createDeny;
-    DWORD predicateAllow;
-    DWORD predicateDeny;
-    DWORD placeAllow;
-    DWORD placeDeny;
-};
-
 struct EditorResourceTargetProfile
 {
     DWORD findArchive;
@@ -35,7 +22,6 @@ struct TargetProfile
 {
     const char* name;
     const char* executableSha256;
-    ObjectLimitTargetProfile objectLimits;
     EditorResourceTargetProfile editorResources;
     HookSite minimapObstacleColor;
     HookSite duneFillPass;

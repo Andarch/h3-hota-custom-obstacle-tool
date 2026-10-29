@@ -74,6 +74,16 @@ namespace
         { "Burnt Structures", 0x00000CFFu, 6, 1, 1, true, "avbhou01.def", { "avbhou01.def", "avbhou02.def", "avbhou03.def", nullptr }, 3 },
         { "Crumbled Structures", 0x00000CFFu, 6, 1, 2, true, "tpdestr3.def", { "tpdestr3.def", "tpdestr4.def", "avtcvrui.def", "tpdestr2.def" }, 4 },
     };
+    constexpr const char* kObstacleCategoryNames[] = {
+        "Raised Ground",
+        "Lowered Ground",
+        "Trees",
+        "Undergrowth",
+        "Debris",
+        "Animals",
+        "Miscellaneous",
+    };
+    static_assert(sizeof(kObstacleCategoryNames) / sizeof(kObstacleCategoryNames[0]) == kObstacleCategoryCount);
 
     constexpr ObstacleDefMetadata kObstacleDefMetadata[] =
     {
@@ -1106,6 +1116,12 @@ namespace
             return nullptr;
         return &kObstacleDefMetadata[storedIndex - 1];
     }
+}
+
+const char* ObstacleCategoryName(int categoryIndex)
+{
+    return categoryIndex >= 0 && categoryIndex < kObstacleCategoryCount
+        ? kObstacleCategoryNames[categoryIndex] : "";
 }
 
 bool ObstacleButtonDataAvailable()

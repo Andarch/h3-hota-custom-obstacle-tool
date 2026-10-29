@@ -28,6 +28,22 @@ both layers painted at matching coordinates with different terrains, surface-onl
 paint, cleared/non-obstacle selections, unchecked categories, inactive tools,
 and single-layer maps that must never query underground.
 
+Native-window section tests cover category header clicks, independent expansion,
+checked counts (including terrain-disabled buttons), regular/bold font weights,
+hidden controls, preserved generation selections and focus, cleared hover state,
+panel recreation, and scrollbar clamping when sections collapse. They use
+disposable windows and do not load a game or change maps.
+Global Select All/None cases verify larger control dimensions, all 60 selections
+including collapsed/terrain-disabled buttons, header counts, preserved expansion,
+and focus-preserving clicks.
+
+Mode tests cover Default startup, radio check states and clicks, hidden custom
+controls/native toolbar visibility, remembered mode and selections, preserved
+focus, and unchanged queued Default placement commands. Filter tests verify that
+Default bypasses diagnostic exclusions and custom generation/overlay requests.
+Minimap thunk tests cover both modes for indices 0..233, preserving EAX and
+native comparison flags while substituting index 157 only in Custom mode.
+
 Selected-object rule tests cover private weight/adjacency copies, preserved
 overlap bans, land versus water/void masks, sparse masks, malformed native rows,
 unselected candidate rejection, row reuse, and vanilla-mode bypass.
