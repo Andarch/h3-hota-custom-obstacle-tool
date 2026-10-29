@@ -30,7 +30,7 @@ namespace
     constexpr DWORD kMaximumDefSize = 16 * 1024 * 1024;
     constexpr DWORD kMaximumFrameExtent = 4096;
     constexpr size_t kMaximumFramePixels = 16 * 1024 * 1024;
-    constexpr int kIconExtent = 30;
+    constexpr int kIconExtent = 36;
     constexpr int kPreviewExtent = 160;
 
     using FindArchiveFn = void* (__cdecl*)(const char*);

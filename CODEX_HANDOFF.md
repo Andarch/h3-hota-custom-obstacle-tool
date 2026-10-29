@@ -1,8 +1,68 @@
 # Codex Project Handoff
 
-Last updated: 2026-10-28
+Last updated: 2026-10-29
 
 ## Next Chat Starting Point
+
+- User accepted the workbook/category updates, 40x40 buttons with 36x36 icons,
+  and expansion toggle on 2026-10-29, and requested this checkpoint be committed
+  and pushed. Current panel has 70 buttons in ten categories. Visual acceptance
+  supersedes the pending UI notes below; broader painted-map regression and
+  underground visual acceptance remain limited to the evidence already recorded.
+- Added a 28x28 Expand All / Collapse All toggle (2026-10-29), right-aligned
+  on the global Select All/None row. Double down chevrons expand every category
+  if any is collapsed; double up chevrons collapse when all are expanded.
+  Tooltip and glyph reflect individual header changes. Reuses non-focus mouse
+  handling and scroll layout; selections and generation are unchanged. All
+  sections still start collapsed. Debug/Release Win32 builds and compatibility
+  suites pass, including real tooltip updates, mixed-state clicks, visibility,
+  focus/selection preservation and scroll clamping. Both DLLs initialize in
+  isolated 1.8.1 editors with native object-limit bytes unchanged. User accepted
+  the new control in the editor.
+- Hills/Mounds split (2026-10-29): regenerated from the updated v2 workbook
+  as separate Hills (7 buttons) and Mounds (4 buttons), for ten categories and
+  the same 70 buttons. Only category membership, category names and Mounds row
+  positions changed; icons, masks, selections and generation data are retained.
+  Workbook Button Layout A8 still says `Hills/Mounds`, while Button Mapping and
+  Obstacles say `Hills`. Generation used `read_workbook_sheets`, replaced only
+  `sheets["Button Layout"][7]` with `["Hills"]` in memory, then ran the normal
+  parse/validation/render functions. Workbook is untouched; the CLI generator
+  will reject the stale heading until A8 is corrected. Debug/Release Win32
+  builds and compatibility suites pass; user accepted the category split.
+- Obstacle button size trial (2026-10-29): buttons are now 40x40 with 36x36
+  runtime-rendered icons, providing a two-pixel inset. Previous 48x48 buttons
+  with 44x44 icons were accepted; user requested this smaller size for comparison.
+  User accepted 40x40 buttons with 36x36 icons. Four-column workbook
+  layout and scroll sizing use the new button extent. Select All/None controls
+  and 160x160 hover previews retain their sizes. Debug/Release Win32 builds and
+  compatibility suites pass.
+- Current workbook (supersedes all older workbook paths below):
+  `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles_1.8.1_v2.xlsx`.
+  Use it in place for future requested updates; do not edit the workbook.
+- Initial update from v2 on 2026-10-29: 70 buttons across nine categories. Raised
+  Ground is split into Mountains (18), Hills/Mounds (11), and Reefs (2).
+  Generated button layout, terrain masks, DEF mappings, icons and previews
+  follow the workbook, validated with `HotA_1.8.1_txt/edobjts.txt`.
+- Statically verified workbook comparison by DEF: all 880 DEFs are retained;
+  only Category (242 rows) and Button (117 rows) changed on Obstacles.
+  Density, masks, native identities and borrowed rules are unchanged. The
+  generated 28 minimal template overrides and 12 borrowed sources are retained;
+  their button indices follow the new layout. No raw game assets are included.
+- Extended selection storage/packing from two DWORDs to three (capacity 96),
+  with generator and compile-time guards. This is required for buttons 64..69
+  (Barrels through Crumbled Structures); no shifts exceed 31 bits. Categories
+  still start collapsed; Default retains native behavior.
+- Verification (2026-10-29): normal Debug/Release Win32 solution builds and
+  compatibility suites pass. Added independent packing checks for all 70 UI
+  selections and 70-by-70 candidate acceptance checks, covering both DWORD
+  boundaries and inactive-filter bypass. Existing disposable-window tests pass
+  with nine categories, header counts, collapsed startup, Select All/None,
+  mode controls, focus and scroll preservation.
+- Runtime verified: both rebuilt DLLs initialize in disposable private-desktop
+  1.8.1 editors; native object-limit bytes remain unchanged at 0x4212A4,
+  0x4232D4 and 0x426AFA. Evidence: existing ignored
+  `scratch/smoke/obstacle_only_smoke.exe`. Full painted-map placement and
+  visual acceptance of the new button set are not established by these checks.
 
 - Tightened Default/Custom radio spacing: option width is capped at 88 pixels
   instead of stretching each option across half the panel; narrow panels still
@@ -94,7 +154,7 @@ Last updated: 2026-10-28
   This supersedes the accepted two-gap limitation documented on September 20.
 - Preserve the mountain-only drawing-order exception. Dunes must retain native
   drawing-order checks; their rejected bypass must not be restored.
-- Current workbook: `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles_1.8.1.xlsx`.
+- Previous workbook: `C:\Users\Andy\My Drive\Heroes Stuff\HotA lod\obstacles_1.8.1.xlsx`.
   Read it in place for future requested icon/data updates; no workbook edits
   were needed for this filler feature. Test map: `C:\Users\Andy\Repos\obstacle_test.h3m`.
 - Latest checkpoint includes the underground scanner fix, its regression tests,

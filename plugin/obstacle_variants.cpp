@@ -21,12 +21,13 @@ namespace
     constexpr UINT kVanillaPlaceObstaclesCommand = 32927;
     constexpr UINT kPlaceThickObstaclesCommand = 0x7001;
     constexpr UINT kPlaceThinObstaclesCommand = 0x7002;
-    constexpr int kCategoryButtonExtent = 32;
+    constexpr int kCategoryButtonExtent = 40;
     constexpr int kSelectionButtonExtent = 18;
     constexpr int kSelectionRowHeight = 22;
     constexpr int kSelectionCommandBase = 4100;
     constexpr int kGlobalSelectionAction = kObstacleCategoryCount * 2;
-    constexpr int kSelectionActionCount = kGlobalSelectionAction + 2;
+    constexpr int kExpansionAction = kGlobalSelectionAction + 2;
+    constexpr int kSelectionActionCount = kExpansionAction + 1;
     constexpr int kGlobalSelectionButtonExtent = 28;
     constexpr int kGlobalSelectionRowHeight = 36;
     constexpr int kCategoryGlyphExtent = 24;
@@ -229,19 +230,22 @@ namespace
         s_categoryCheckedInitialized = true;
     }
 
-    void GetSelectedButtonMasks(DWORD& lowMask, DWORD& highMask)
+    void GetSelectedButtonMasks(DWORD& lowMask, DWORD& highMask, DWORD& extendedMask)
     {
         EnsureCategoryCheckedInitialized();
         lowMask = 0;
         highMask = 0;
+        extendedMask = 0;
         for (int index = 0; index < kObstacleButtonCount; ++index)
         {
             if (!s_categoryChecked[index])
                 continue;
             if (index < 32)
                 lowMask |= 1u << index;
-            else
+            else if (index < 64)
                 highMask |= 1u << (index - 32);
+            else
+                extendedMask |= 1u << (index - 64);
         }
     }
 
@@ -1006,7 +1010,7 @@ namespace
         const ObstacleRenderedImage* icon,
         COLORREF background)
     {
-        constexpr int kIconExtent = 30;
+        constexpr int kIconExtent = 36;
         if (!icon || icon->width != kIconExtent || icon->height != kIconExtent ||
             icon->bgra.size() != kIconExtent * kIconExtent * 4)
             return false;
@@ -1421,6 +1425,18 @@ namespace
         }
     }
 
+    bool AllCategoriesExpanded()
+    {
+        for (bool expanded : s_categoryExpanded)
+            if (!expanded) return false;
+        return true;
+    }
+
+    const char* ExpansionActionText()
+    {
+        return AllCategoriesExpanded() ? "Collapse All" : "Expand All";
+    }
+
     void LayoutScrollHost(HWND hwnd, ScrollHostState& state)
     {
         InitializeScrollHostLayout(state);
@@ -1498,10 +1514,22 @@ namespace
             const int extent = global ? kGlobalSelectionButtonExtent : kSelectionButtonExtent;
             if (state.selectionButtons[index])
                 SetWindowPos(state.selectionButtons[index], nullptr,
-                    (index % 2) * (extent + (global ? 12 : 6)),
+                    index == kExpansionAction ? (client.right > extent ? client.right - extent : 0) :
+                        (index % 2) * (extent + (global ? 12 : 6)),
                     (global ? 0 : state.selectionY[index / 2]) - state.scrollPosition,
                     extent, extent, positionFlags |
                     (global || s_categoryExpanded[index / 2] ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+        }
+
+        if (state.selectionTooltip && state.selectionButtons[kExpansionAction])
+        {
+            TOOLINFOA tool = {};
+            tool.cbSize = sizeof(tool);
+            tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+            tool.hwnd = hwnd;
+            tool.uId = reinterpret_cast<UINT_PTR>(state.selectionButtons[kExpansionAction]);
+            tool.lpszText = const_cast<char*>(ExpansionActionText());
+            SendMessageA(state.selectionTooltip, TTM_UPDATETIPTEXTA, 0, reinterpret_cast<LPARAM>(&tool));
         }
 
         for (int category = 0; category < kObstacleCategoryCount; ++category)
@@ -1685,6 +1713,26 @@ namespace
                 const int y = (client.bottom - 1) / 2 + offset;
                 HBRUSH ink = GetSysColorBrush((draw->uItemState & CDIS_DISABLED)
                     ? COLOR_GRAYTEXT : COLOR_BTNTEXT);
+                if (action == kExpansionAction)
+                {
+                    HPEN pen = CreatePen(PS_SOLID, 2, GetSysColor(
+                        (draw->uItemState & CDIS_DISABLED) ? COLOR_GRAYTEXT : COLOR_BTNTEXT));
+                    if (pen)
+                    {
+                        HGDIOBJ old = SelectObject(draw->hdc, pen);
+                        const int direction = AllCategoriesExpanded() ? -1 : 1;
+                        for (int row = -1; row <= 1; row += 2)
+                        {
+                            const int centerY = y + row * 3;
+                            POINT points[] = { { x - 5, centerY - direction * 2 },
+                                { x, centerY + direction * 2 }, { x + 5, centerY - direction * 2 } };
+                            Polyline(draw->hdc, points, 3);
+                        }
+                        SelectObject(draw->hdc, old);
+                        DeleteObject(pen);
+                    }
+                    return CDRF_DODEFAULT;
+                }
                 const bool global = action >= kGlobalSelectionAction;
                 const int radius = global ? 6 : 3;
                 const int thickness = global ? 2 : 1;
@@ -1718,6 +1766,13 @@ namespace
                 reinterpret_cast<HWND>(lParam) != state->selectionButtons[action])
                 break;
             HideObstaclePreview(nullptr);
+            if (action == kExpansionAction)
+            {
+                const bool expand = !AllCategoriesExpanded();
+                for (bool& expanded : s_categoryExpanded) expanded = expand;
+                LayoutScrollHost(hwnd, *state);
+                return 0;
+            }
             EnsureCategoryCheckedInitialized();
             const bool checked = action % 2 == 0;
             for (int index = 0; index < kObstacleButtonCount; ++index)
@@ -2296,8 +2351,9 @@ namespace
 
         DWORD lowMask = 0;
         DWORD highMask = 0;
-        GetSelectedButtonMasks(lowMask, highMask);
-        SetObstacleButtonSelection(lowMask, highMask);
+        DWORD extendedMask = 0;
+        GetSelectedButtonMasks(lowMask, highMask, extendedMask);
+        SetObstacleButtonSelection(lowMask, highMask, extendedMask);
         SetObstacleGenerationFilterMode(mode);
         SendMessageA(
             parent,
@@ -2619,7 +2675,8 @@ namespace
                 tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
                 tool.hwnd = panel.scrollHost;
                 tool.uId = reinterpret_cast<UINT_PTR>(button);
-                tool.lpszText = action % 2 ? noneText : allText;
+                tool.lpszText = action == kExpansionAction ? const_cast<char*>(ExpansionActionText()) :
+                    action % 2 ? noneText : allText;
                 createdAll = SendMessageA(scrollState->selectionTooltip, TTM_ADDTOOLA,
                     0, reinterpret_cast<LPARAM>(&tool)) != FALSE;
             }

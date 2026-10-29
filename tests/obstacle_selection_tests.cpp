@@ -117,6 +117,18 @@ void TestObstacleCategorySections()
     EnsureCategoryCheckedInitialized();
     memcpy(savedChecked, s_categoryChecked, sizeof(savedChecked));
     memcpy(savedExpanded, s_categoryExpanded, sizeof(savedExpanded));
+    // Every UI selection must pack independently, including both DWORD boundaries.
+    for (int selected = 0; selected < kObstacleButtonCount; ++selected)
+    {
+        ZeroMemory(s_categoryChecked, sizeof(s_categoryChecked));
+        s_categoryChecked[selected] = true;
+        DWORD low, high, extended;
+        GetSelectedButtonMasks(low, high, extended);
+        DWORD masks[] = { low, high, extended };
+        for (int word = 0; word < 3; ++word)
+            CHECK_SELECTION(masks[word] == (word == selected / 32 ? 1u << (selected & 31) : 0));
+    }
+    memcpy(s_categoryChecked, savedChecked, sizeof(savedChecked));
     s_pluginModule = GetModuleHandleA(nullptr);
     CHECK_SELECTION(EnsureScrollHostClass() && EnsureCategoryButtonClass());
     HWND parent = CreateWindowExA(0, "STATIC", "", WS_POPUP, 0, 0, 300, 600,
@@ -141,6 +153,17 @@ void TestObstacleCategorySections()
             CHECK_SELECTION(state->selectionButtons[action]);
             CHECK_SELECTION(SetWindowSubclass(state->selectionButtons[action], SelectionButtonSubclass, 1, 0));
         }
+        state->selectionTooltip = CreateWindowExA(0, TOOLTIPS_CLASSA, nullptr,
+            WS_POPUP | TTS_ALWAYSTIP, 0, 0, 0, 0, host, nullptr, s_pluginModule, nullptr);
+        CHECK_SELECTION(state->selectionTooltip);
+        TOOLINFOA tool = {};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = host;
+        tool.uId = reinterpret_cast<UINT_PTR>(state->selectionButtons[kExpansionAction]);
+        tool.lpszText = const_cast<char*>(ExpansionActionText());
+        CHECK_SELECTION(SendMessageA(state->selectionTooltip, TTM_ADDTOOLA, 0,
+            reinterpret_cast<LPARAM>(&tool)));
         LayoutScrollHost(host, *state);
         return host;
     };
@@ -158,8 +181,8 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(s_categoryExpanded[0] && !s_categoryExpanded[1]);
     CHECK_SELECTION(visibleStyle(state->buttons[0]));
     const int firstHeight = state->headerY[1];
-    DWORD lowBefore, highBefore, lowAfter, highAfter;
-    GetSelectedButtonMasks(lowBefore, highBefore);
+    DWORD lowBefore, highBefore, extendedBefore, lowAfter, highAfter, extendedAfter;
+    GetSelectedButtonMasks(lowBefore, highBefore, extendedBefore);
     HWND focusBefore = GetFocus();
     clickHeader(1);
     CHECK_SELECTION(s_categoryExpanded[0] && s_categoryExpanded[1]);
@@ -178,8 +201,8 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(!button->mouseInside && !button->hot);
     CHECK_SELECTION(state->headerY[1] == kGlobalSelectionRowHeight + kCategoryHeaderHeight &&
         firstHeight > kGlobalSelectionRowHeight + kCategoryHeaderHeight);
-    GetSelectedButtonMasks(lowAfter, highAfter);
-    CHECK_SELECTION(lowBefore == lowAfter && highBefore == highAfter);
+    GetSelectedButtonMasks(lowAfter, highAfter, extendedAfter);
+    CHECK_SELECTION(lowBefore == lowAfter && highBefore == highAfter && extendedBefore == extendedAfter);
     // Hidden, terrain-disabled selections still count; select-none updates only its section.
     SetCategoryButtonEnabled(state->buttons[0], false);
     CHECK_SELECTION(SelectedCountForCategory(0) > 0);
@@ -188,7 +211,7 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(SelectedCountForCategory(0) == 0 && SelectedCountForCategory(1) > 0);
     char caption[128] = {};
     GetWindowTextA(state->headers[0], caption, sizeof(caption));
-    CHECK_SELECTION(strcmp(caption, "Raised Ground (0)") == 0);
+    CHECK_SELECTION(strcmp(caption, "Mountains (0)") == 0);
     LOGFONTA font = {};
     GetObjectA(state->headerFont, sizeof(font), &font);
     CHECK_SELECTION(font.lfWeight == FW_NORMAL);
@@ -234,6 +257,53 @@ void TestObstacleCategorySections()
             CHECK_SELECTION(state->selectedCounts[category] == SelectedCountForCategory(category));
         }
     }
+    // Expansion controls preserve every selection and focus, including mixed states.
+    bool checkedBeforeToggle[kObstacleButtonCount];
+    memcpy(checkedBeforeToggle, s_categoryChecked, sizeof(checkedBeforeToggle));
+    HWND toggle = state->selectionButtons[kExpansionAction];
+    CHECK_SELECTION(visibleStyle(toggle));
+    RECT toggleRect = {}, hostRect = {};
+    GetWindowRect(toggle, &toggleRect);
+    GetClientRect(host, &hostRect);
+    MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&toggleRect), 2);
+    CHECK_SELECTION(toggleRect.right == hostRect.right);
+    CHECK_SELECTION(toggleRect.right - toggleRect.left == kGlobalSelectionButtonExtent);
+    auto clickToggle = [&]() {
+        SendMessageA(toggle, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
+        SendMessageA(toggle, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
+        CHECK_SELECTION(GetFocus() == focusBefore);
+        CHECK_SELECTION(memcmp(checkedBeforeToggle, s_categoryChecked, sizeof(checkedBeforeToggle)) == 0);
+    };
+    auto checkTooltip = [&]() {
+        char text[80] = {};
+        TOOLINFOA tool = {};
+        tool.cbSize = sizeof(tool);
+        tool.hwnd = host;
+        tool.uId = reinterpret_cast<UINT_PTR>(toggle);
+        tool.lpszText = text;
+        SendMessageA(state->selectionTooltip, TTM_GETTEXTA, sizeof(text), reinterpret_cast<LPARAM>(&tool));
+        CHECK_SELECTION(strcmp(text, ExpansionActionText()) == 0);
+    };
+    CHECK_SELECTION(strcmp(ExpansionActionText(), "Expand All") == 0);
+    checkTooltip();
+    clickToggle();
+    CHECK_SELECTION(AllCategoriesExpanded());
+    CHECK_SELECTION(strcmp(ExpansionActionText(), "Collapse All") == 0);
+    checkTooltip();
+    for (HWND obstacle : state->buttons) CHECK_SELECTION(visibleStyle(obstacle));
+    clickHeader(1);
+    CHECK_SELECTION(!AllCategoriesExpanded());
+    CHECK_SELECTION(strcmp(ExpansionActionText(), "Expand All") == 0);
+    checkTooltip();
+    clickToggle();
+    CHECK_SELECTION(AllCategoriesExpanded());
+    ScrollHostTo(host, state->contentHeight);
+    CHECK_SELECTION(state->scrollPosition > 0);
+    clickToggle();
+    CHECK_SELECTION(state->scrollPosition == 0);
+    for (bool expanded : s_categoryExpanded) CHECK_SELECTION(!expanded);
+    for (HWND obstacle : state->buttons) CHECK_SELECTION(!visibleStyle(obstacle));
+    CHECK_SELECTION(strcmp(ExpansionActionText(), "Expand All") == 0);
     DestroyWindow(parent);
     memcpy(s_categoryChecked, savedChecked, sizeof(savedChecked));
     memcpy(s_categoryExpanded, savedExpanded, sizeof(savedExpanded));

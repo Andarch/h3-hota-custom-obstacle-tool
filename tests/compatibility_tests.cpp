@@ -12,6 +12,49 @@
 
 namespace
 {
+    void TestButtonSelectionCapacity()
+    {
+        DWORD object[19] = {};
+        DWORD row[19] = {};
+        int weights[12], adjacent[201] = {}, overlap[201] = {};
+        for (int& weight : weights) weight = 10;
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        row[1] = reinterpret_cast<DWORD>(&holder);
+        row[12] = reinterpret_cast<DWORD>(adjacent);
+        row[13] = row[12] + sizeof(adjacent);
+        row[16] = reinterpret_cast<DWORD>(overlap);
+        row[17] = row[16] + sizeof(overlap);
+        DWORD candidate[5] = {};
+        object[0] = 7200;
+        candidate[0] = reinterpret_cast<DWORD>(object);
+        candidate[4] = reinterpret_cast<DWORD>(row);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        for (int selected = 0; selected < kObstacleButtonCount; ++selected)
+        {
+            DWORD masks[3] = {};
+            masks[selected / 32] = 1u << (selected & 31);
+            SetObstacleButtonSelection(masks[0], masks[1], masks[2]);
+            CHECK(!IsObstacleButtonSelected(-1));
+            CHECK(!IsObstacleButtonSelected(kObstacleButtonCount));
+            for (int index = 0; index < kObstacleButtonCount; ++index)
+            {
+                CHECK(IsObstacleButtonSelected(index) == (index == selected));
+                const auto* button = ObstacleButtonDefinitionAt(index);
+                s_selectedObjectRules.clear();
+                candidate[4] = reinterpret_cast<DWORD>(row);
+                object[6] = button->terrainMask;
+                RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object),
+                    reinterpret_cast<DWORD>(button->iconDefName));
+                CHECK(ObstacleButtonIndexForObjectTemplate(reinterpret_cast<DWORD>(object)) == index);
+                CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)) == (index == selected));
+            }
+        }
+        s_selectedObjectRules.clear();
+        SetObstacleButtonSelection(0, 0, 0);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+    }
+
     void TestSelectedRules()
     {
         DWORD source[19] = {};
@@ -50,10 +93,10 @@ namespace
         candidate[0] = reinterpret_cast<DWORD>(object);
         SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
         s_defaultSelectedRow = reinterpret_cast<DWORD>(source);
-        SetObstacleButtonSelection(0, 0);
+        SetObstacleButtonSelection(0, 0, 0);
         CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         CHECK(candidate[4] == 0);
-        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD);
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         CHECK(candidate[4] != 0);
         const DWORD privateRow = candidate[4];
@@ -105,9 +148,9 @@ namespace
         RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object),
             reinterpret_cast<DWORD>("AVLdun10.def"));
         SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
-        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD);
         CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
-        SetObstacleButtonSelection(4, 0);
+        SetObstacleButtonSelection(4, 0, 0);
         s_duneFillActive = true;
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         object[8] = 1; CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
@@ -115,7 +158,7 @@ namespace
         CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         object[7] = 148; object[8] = 0;
         s_duneFillActive = false;
-        SetObstacleButtonSelection(MAXDWORD & ~4u, MAXDWORD);
+        SetObstacleButtonSelection(MAXDWORD & ~4u, MAXDWORD, MAXDWORD);
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
 
         DWORD generator[9] = {};
@@ -126,12 +169,12 @@ namespace
         cells[1][9] = 0;
         cells[2][10] |= 0x08000000;
         cells[3][10] = 0x02000000;
-        SetObstacleButtonSelection(4, 0);
+        SetObstacleButtonSelection(4, 0, 0);
         CaptureDunePaint(reinterpret_cast<DWORD>(generator));
         CHECK(s_duneCapturedGenerator == reinterpret_cast<DWORD>(generator));
         CHECK(s_dunePaintedCells[0] && !s_dunePaintedCells[1] &&
             !s_dunePaintedCells[2] && !s_dunePaintedCells[3]);
-        SetObstacleButtonSelection(0, 0);
+        SetObstacleButtonSelection(0, 0, 0);
         CaptureDunePaint(reinterpret_cast<DWORD>(generator));
         CHECK(!s_duneCapturedGenerator);
         SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
@@ -186,7 +229,7 @@ namespace
         s_traceCandidateRow = reinterpret_cast<DWORD>(row);
         s_traceCandidateButton = 0;
         s_generationFilterMode = static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection);
-        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD);
         auto allowed = [&]() { return AllowMountainOrder(reinterpret_cast<DWORD>(candidate),
             reinterpret_cast<DWORD>(row), reinterpret_cast<DWORD>(object)); };
         CHECK(allowed());
@@ -202,8 +245,8 @@ namespace
         other[7] = 134;
         overlaps[6] = -5000; CHECK(!allowed()); overlaps[6] = 30;
         otherRow[0] = 201; CHECK(!allowed()); otherRow[0] = 6;
-        SetObstacleButtonSelection(0, 0); CHECK(!allowed());
-        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        SetObstacleButtonSelection(0, 0, 0); CHECK(!allowed());
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD);
         s_generationFilterMode = 0; CHECK(!allowed());
         s_generationFilterMode = static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection);
         s_candidateObjectTemplate = 0; CHECK(!allowed());
@@ -236,7 +279,7 @@ namespace
         CHECK(!TracedTerrainPredicate(reinterpret_cast<DWORD>(testRow), 0, 1));
         CHECK(s_terrainPredicateCounts[6][0][0] == 1);
         s_candidateTerrainMask = 1;
-        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD);
         CHECK(TracedTerrainPredicate(reinterpret_cast<DWORD>(testRow), 0, 1));
         CHECK(s_edgeRelaxations == 1);
         BYTE flags[12] = {};
@@ -264,10 +307,10 @@ namespace
         weights[0] = static_cast<DWORD>(-5000);
         CHECK(!SelectedTerrainEdgeAllowed(reinterpret_cast<DWORD>(testRow), 0));
         weights[0] = 10;
-        SetObstacleButtonSelection(0, 0);
+        SetObstacleButtonSelection(0, 0, 0);
         CHECK(!AccumulateSelectedTerrain(reinterpret_cast<DWORD>(testRow), 0, flags));
         CHECK(!TracedTerrainPredicate(reinterpret_cast<DWORD>(testRow), 0, 1));
-        SetObstacleButtonSelection(MAXDWORD, MAXDWORD);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD);
         s_generationFilterMode = 0;
         CHECK(SelectedTerrainAccumulator(reinterpret_cast<DWORD>(testRow), 0, 5, flags) == 0x1234);
         CHECK(!TracedTerrainPredicate(reinterpret_cast<DWORD>(testRow), 0, 1));
@@ -498,6 +541,7 @@ int main()
     CHECK(TryReadCandidateRecordRowId(reinterpret_cast<DWORD>(wrapper), actual));
     CHECK(actual == 200);
 
+    TestButtonSelectionCapacity();
     TestSelectedRules();
     TestParserThunks();
     TestPredicateThunk();
