@@ -193,7 +193,14 @@ commands are in `tests/README.md`. Native smoke scenarios are in
 - Keep logs and optional bounded diagnostics for troubleshooting. Explicit one-based
   row blocking remains `HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS`; generation tracing
   remains `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE`. Standard bypasses diagnostics.
-- Before public distribution, verify x86 VC++ runtime packaging, Unicode/long paths,
+- `README.md` is the user guide: requirements, installation/discovery/optional INI,
+  features, usage, limitations, troubleshooting/log location, updates and removal.
+  Release EXE/DLL imports were inspected: both depend on MSVCP140/VCRUNTIME140.
+  The guide links Microsoft's latest v14 x86 installer, required even on x64 Windows.
+  Include the guide and root `LICENSE` in the release ZIP. User selected MIT;
+  copyright holder is Andarch, year 2026. README links the license and distinguishes
+  the project license from third-party game assets.
+- Before public distribution, verify x86 VC++ runtime packaging on a fresh PC, Unicode/long paths,
   temporary Data-directory write access and installation discovery on other PCs.
   These are pending release tasks, not changes included in cleanup.
 - Test map: `C:\Users\Andy\Repos\obstacle_test.h3m` (do not overwrite).
