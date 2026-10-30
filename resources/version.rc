@@ -1,0 +1,40 @@
+#include <windows.h>
+#include "version.h"
+1 VERSIONINFO
+ FILEVERSION TOOL_VERSION_NUM
+ PRODUCTVERSION TOOL_VERSION_NUM
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+ FILEFLAGS VS_FF_DEBUG
+#else
+ FILEFLAGS 0
+#endif
+ FILEOS VOS_NT_WINDOWS32
+#ifdef TOOL_DLL
+ FILETYPE VFT_DLL
+#else
+ FILETYPE VFT_APP
+#endif
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904b0"
+  BEGIN
+   VALUE "CompanyName", TOOL_AUTHOR
+   VALUE "FileDescription", TOOL_DESCRIPTION
+   VALUE "FileVersion", TOOL_VERSION_STRING
+   VALUE "InternalName", "HotACustomObstacleTool"
+#ifdef TOOL_DLL
+   VALUE "OriginalFilename", "HotACustomObstacleTool.dll"
+#else
+   VALUE "OriginalFilename", "HotACustomObstacleTool.exe"
+#endif
+   VALUE "ProductName", TOOL_PRODUCT
+   VALUE "ProductVersion", TOOL_VERSION_DISPLAY
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END

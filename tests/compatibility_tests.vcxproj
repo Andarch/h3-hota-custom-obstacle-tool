@@ -50,5 +50,15 @@
     <ClCompile Include="..\plugin\target_profile.cpp" />
     <ClCompile Include="..\plugin\obstacle_button_data.cpp" />
   </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ResourceCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\resources\version.rc" />
+    <ResourceCompile Include="..\plugin\about.rc"><AdditionalIncludeDirectories>..\plugin;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ResourceCompile>
+    <ClCompile Include="about_tests.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

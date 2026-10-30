@@ -83,3 +83,10 @@ native overlap arrays, per-run option snapshots, failure rejection and restorati
 when unchecked. Preview sizing and terrain icons use the same effective-mask helper.
 Isolated native-generation probe evidence and visual acceptance limits are recorded
 in `CODEX_HANDOFF.md`.
+
+`about_tests.cpp` exercises the production About code and resource in disposable
+native windows: Help menu insertion, preserved native About entry, repeated
+installation, preservation of native menu updates/disabled states while the tool's
+entry stays enabled after WM_INITMENUPOPUP, exact version/author/description,
+centered modal ownership, OK and keyboard Escape. It activates its own common-controls v6 context, so the
+SysLink works without relying on a host manifest. Tests do not open the browser.

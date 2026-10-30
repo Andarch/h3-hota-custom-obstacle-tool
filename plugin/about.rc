@@ -1,0 +1,23 @@
+#include <windows.h>
+#include "about_resource.h"
+#include "../resources/version.h"
+IDD_TOOL_ABOUT DIALOGEX 0, 0, 250, 128
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About Custom Obstacle Tool"
+FONT 9, "Segoe UI"
+BEGIN
+ LTEXT TOOL_PRODUCT, -1, 10, 10, 230, 12
+ LTEXT TOOL_VERSION_DISPLAY, -1, 10, 26, 30, 12
+#ifdef _DEBUG
+ LTEXT "Debug Build", -1, 46, 26, 194, 12
+#else
+ LTEXT "Release Build", -1, 46, 26, 194, 12
+#endif
+ LTEXT TOOL_CREDIT, -1, 10, 42, 230, 12
+ LTEXT TOOL_DESCRIPTION, -1, 10, 60, 230, 20
+ CONTROL "<a>GitHub repository</a>", IDC_TOOL_REPOSITORY, "SysLink", WS_TABSTOP, 10, 82, 180, 12
+ CONTROL "", -1, "Static", SS_ETCHEDHORZ, 10, 100, 230, 1
+ DEFPUSHBUTTON "OK", IDOK, 180, 107, 60, 16
+END
+
+IDR_ABOUT_MANIFEST RT_MANIFEST "about.manifest"

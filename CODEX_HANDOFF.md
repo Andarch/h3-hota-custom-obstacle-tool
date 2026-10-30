@@ -21,10 +21,22 @@ Last updated: 2026-10-30
   Current workbook-selected generation, overlays, borrowing and diagnostics remain.
   The source tree and current docs describe supported behavior; earlier
   chronological investigations are recoverable from Git history.
-- Pending changes already present before cleanup include the Standard label,
-  radio tooltips, repository path updates and output-binary renaming. Preserve them.
 
 ## User interface
+
+- Help > About Custom Obstacle Tool... is available in both modes, after the
+  existing native About item. The owner-thread menu subclass opens a centered
+  modal native dialog with v0.9, build configuration, author Andarch, description,
+  GitHub repository link and OK. Escape closes it. The compact dialog is
+  250x128 dialog units, with version and build on one row and 10-unit side margins.
+  A private activation context enables the SysLink control independently of the
+  editor's common-controls version.
+  Runtime verified: native WM_INITMENUPOPUP disables unknown commands (state 3).
+  The subclass delegates first, then enables only the tool's About command, leaving
+  native command states intact. Startup/direct WM_COMMAND tests alone miss this.
+- `resources/version.h` defines the shared dialog/product version and binary
+  metadata. EXE and DLL have numeric file version 0.9.0.0 and product version v0.9.
+  `resources/version.rc` is compiled into both; `plugin/about.rc` holds the dialog.
 
 - Standard is the startup mode: native generation, enablement and minimap colors;
   all Custom controls are hidden. Custom is opt-in.
@@ -153,6 +165,14 @@ remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
   0x42B23E and 0x43C114 are used by the production scanner.
 
 ## Verification and release readiness
+
+- About addition: Debug/Release builds and compatibility suites pass, including
+  native-menu preservation, duplicate-install prevention, actual modal resource,
+  exact content, centering, OK and Escape. Runtime verified in an isolated 1.8.1
+  editor: Help insertion, dialog opening/modal ownership/closing, continued editor
+  activity and unchanged native object-limit bytes. EXE/DLL metadata checked for
+  both configurations. User accepted the compact dialog and confirmed the repository
+  link after resolving GitHub sign-in/visibility. Automated tests do not open a browser.
 
 Build sequential Win32 Debug/Release using `AGENTS.md`; compatibility and generator
 commands are in `tests/README.md`. Native smoke scenarios are in

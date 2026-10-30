@@ -593,6 +593,8 @@ int main()
     CHECK(TryReadCandidateRecordRowId(reinterpret_cast<DWORD>(wrapper), actual));
     CHECK(actual == 200);
 
+    extern void TestAboutUi();
+    TestAboutUi();
     TestButtonSelectionCapacity();
     TestAllTerrainGeneration();
     TestSelectedRules();

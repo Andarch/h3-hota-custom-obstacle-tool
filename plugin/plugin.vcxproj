@@ -116,6 +116,18 @@
     </ClCompile>
     <ClCompile Include="target_profile.cpp" />
   </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ResourceCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\resources\version.rc"><PreprocessorDefinitions>TOOL_DLL;%(PreprocessorDefinitions)</PreprocessorDefinitions></ResourceCompile>
+    <ResourceCompile Include="about.rc" />
+    <ClCompile Include="about.cpp" />
+    <ClInclude Include="about.h" />
+    <ClInclude Include="about_resource.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

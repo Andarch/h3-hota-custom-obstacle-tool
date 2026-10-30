@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "obstacle_variants.h"
+#include "about.h"
 
 #include "logger.h"
 #include "hook.h"
@@ -2438,7 +2439,12 @@ namespace
         if (code >= 0 && wParam == PM_REMOVE)
         {
             MSG* message = reinterpret_cast<MSG*>(lParam);
-            if (message && message->message == CategoryLayoutMessage())
+            if (message && message->message == AboutInstallMessage())
+            {
+                InstallAboutMenu(message->hwnd);
+                message->message = WM_NULL;
+            }
+            else if (message && message->message == CategoryLayoutMessage())
             {
                 HWND toolbar = message->hwnd;
                 message->message = WM_NULL;
@@ -2868,7 +2874,15 @@ namespace
         DWORD processId = 0;
         GetWindowThreadProcessId(hwnd, &processId);
         if (processId == GetCurrentProcessId())
+        {
+            if (GetMenu(hwnd) && !GetPropW(hwnd, L"HotACustomObstacleTool.About"))
+            {
+                const DWORD threadId = GetWindowThreadProcessId(hwnd, nullptr);
+                if (EnsureGetMessageHook(threadId))
+                    PostMessageW(hwnd, AboutInstallMessage(), 0, 0);
+            }
             EnumChildWindows(hwnd, EnumChildProc, 0);
+        }
         return TRUE;
     }
 

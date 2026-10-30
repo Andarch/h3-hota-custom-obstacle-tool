@@ -1,0 +1,4 @@
+#pragma once
+#define IDD_TOOL_ABOUT 201
+#define IDC_TOOL_REPOSITORY 2001
+#define IDR_ABOUT_MANIFEST 202
