@@ -5,7 +5,45 @@ Last updated: 2026-10-29
 ## Next Chat Starting Point
 
 - User requested this checkpoint be committed and pushed on 2026-10-29.
-  Current panel has 105 buttons in twelve categories: Mountains has 20 and
+  Current panel has 107 buttons / twelve categories. Global Select All/None
+  and Expand/Collapse All are fixed below Mode; Obstacle Types is removed.
+  Includes the Trees/Bones/Rocks workbook update and shared-name generator fix.
+  Debug/Release Win32 builds, compatibility suites and generator regressions
+  pass. Broader painted-map verification remains as recorded below.
+- Removed the Obstacle Types label (2026-10-29) at the user's request. The
+  fixed global controls now begin after the normal gap below Mode; the former
+  label height and label-to-controls gap are reclaimed for the category viewport.
+  Removed label creation, visibility, cleanup and test scaffolding. Both Win32
+  builds and compatibility suites pass; visual acceptance of label removal is
+  pending. User accepted the preceding fixed global controls row.
+- Fixed global controls row (2026-10-29): Select All, Select None and the
+  expansion toggle now live in a hidden-at-creation sibling host immediately
+  below Obstacle Types. Only categories scroll in the viewport beneath it.
+  Existing row height, button sizes, reserved scrollbar alignment, tooltips,
+  non-focus clicks and wheel forwarding are preserved. The row follows Custom
+  visibility and viewport resizing, and is destroyed with its owning viewport.
+  Category content coordinates exclude the fixed row. No generation changes.
+- Debug/Release Win32 builds and compatibility suites pass. Disposable-window
+  tests cover fixed row/viewport separation, unchanged control coordinates while
+  scrolling, all three actions at the bottom, wheel routing, tooltip updates,
+  focus/selection preservation, hidden Default/startup and row destruction on
+  panel recreation. Both DLLs initialize in isolated 1.8.1 editors with native
+  object-limit bytes unchanged. User accepted the fixed row in the editor.
+- Tree Remains / Bones / Rocks update (2026-10-29): regenerated from the current
+  v2 workbook, now 107 buttons / twelve categories. Trees includes Stumps (3 DEFs),
+  Snow Stumps (2) and Logs (4), replacing Tree Remains; Bones moves to Miscellaneous;
+  Debris is renamed Rocks, currently containing the single Rocks button. User
+  plans to split that button later; do not infer or implement that split yet.
+- Generator now distinguishes a section heading from its same-named button
+  (Rocks followed by Rocks) using current section and Button Mapping membership.
+  Added Python regression cases for the valid shared name and rejection of
+  duplicate headings/buttons. Workbook remains untouched. All 880 DEF hashes,
+  borrow-source indices and 28 override payloads are retained; other existing
+  buttons' masks/defaults/visuals are unchanged. Debug/Release Win32 builds,
+  compatibility suites (all 107 selections) and generator regressions pass.
+  Visual acceptance of this update is pending.
+- User requested the earlier checkpoint be committed and pushed on 2026-10-29.
+  That panel had 105 buttons in twelve categories: Mountains has 20 and
   Undergrowth has 15. Selection capacity is 128; buttons are 40x40 with 36x36
   icons. This checkpoint also includes the stable expansion-toggle position.
   Latest Debug/Release Win32 builds and compatibility suites pass. Visual and

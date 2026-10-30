@@ -148,7 +148,7 @@ void TestObstacleCategorySections()
         for (int action = 0; action < kSelectionActionCount; ++action)
         {
             state->selectionButtons[action] = CreateWindowExA(0, "BUTTON", "",
-                WS_CHILD | WS_VISIBLE, 0, 0, 18, 18, host,
+                WS_CHILD | WS_VISIBLE, 0, 0, 18, 18, action >= kGlobalSelectionAction ? state->globalHost : host,
                 reinterpret_cast<HMENU>(kSelectionCommandBase + action), s_pluginModule, nullptr);
             CHECK_SELECTION(state->selectionButtons[action]);
             CHECK_SELECTION(SetWindowSubclass(state->selectionButtons[action], SelectionButtonSubclass, 1, 0));
@@ -159,7 +159,7 @@ void TestObstacleCategorySections()
         TOOLINFOA tool = {};
         tool.cbSize = sizeof(tool);
         tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-        tool.hwnd = host;
+        tool.hwnd = state->globalHost;
         tool.uId = reinterpret_cast<UINT_PTR>(state->selectionButtons[kExpansionAction]);
         tool.lpszText = const_cast<char*>(ExpansionActionText());
         CHECK_SELECTION(SendMessageA(state->selectionTooltip, TTM_ADDTOOLA, 0,
@@ -199,8 +199,8 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(!s_categoryExpanded[0] && s_categoryExpanded[1]);
     CHECK_SELECTION(!visibleStyle(state->buttons[0]) && !visibleStyle(state->selectionButtons[0]));
     CHECK_SELECTION(!button->mouseInside && !button->hot);
-    CHECK_SELECTION(state->headerY[1] == kGlobalSelectionRowHeight + kCategoryHeaderHeight &&
-        firstHeight > kGlobalSelectionRowHeight + kCategoryHeaderHeight);
+    CHECK_SELECTION(state->headerY[1] == kCategoryHeaderHeight &&
+        firstHeight > kCategoryHeaderHeight);
     GetSelectedButtonMasks(lowAfter, highAfter, extendedAfter, upperAfter);
     CHECK_SELECTION(lowBefore == lowAfter && highBefore == highAfter && extendedBefore == extendedAfter && upperBefore == upperAfter);
     // Hidden, terrain-disabled selections still count; select-none updates only its section.
@@ -218,7 +218,9 @@ void TestObstacleCategorySections()
     GetObjectA(state->headerBoldFont, sizeof(font), &font);
     CHECK_SELECTION(font.lfWeight == FW_BOLD);
     // Recreate the disposable panel as the editor does when switching tools.
+    HWND oldGlobalHost = state->globalHost;
     DestroyWindow(host);
+    CHECK_SELECTION(!IsWindow(oldGlobalHost));
     host = createHost();
     state = ScrollHostStateFromWindow(host);
     CHECK_SELECTION(!s_categoryExpanded[0] && s_categoryExpanded[1]);
@@ -231,7 +233,7 @@ void TestObstacleCategorySections()
     for (bool& expanded : s_categoryExpanded) expanded = false;
     LayoutScrollHost(host, *state);
     CHECK_SELECTION(state->scrollPosition == 0);
-    CHECK_SELECTION(state->contentHeight == kGlobalSelectionRowHeight + kObstacleCategoryCount * kCategoryHeaderHeight);
+    CHECK_SELECTION(state->contentHeight == kObstacleCategoryCount * kCategoryHeaderHeight);
     // Global controls include collapsed and terrain-disabled selections without
     // expanding sections or taking focus from the editor.
     CHECK_SELECTION(visibleStyle(state->selectionButtons[kGlobalSelectionAction]));
@@ -262,6 +264,13 @@ void TestObstacleCategorySections()
     memcpy(checkedBeforeToggle, s_categoryChecked, sizeof(checkedBeforeToggle));
     HWND toggle = state->selectionButtons[kExpansionAction];
     CHECK_SELECTION(visibleStyle(toggle));
+    CHECK_SELECTION(GetParent(toggle) == state->globalHost);
+    CHECK_SELECTION(GetParent(state->globalHost) == parent);
+    CHECK_SELECTION(GetParent(host) == parent);
+    RECT fixedRow = {}, viewport = {};
+    GetWindowRect(state->globalHost, &fixedRow);
+    GetWindowRect(host, &viewport);
+    CHECK_SELECTION(fixedRow.bottom == viewport.top);
     RECT toggleRect = {}, hostRect = {};
     GetWindowRect(toggle, &toggleRect);
     GetClientRect(host, &hostRect);
@@ -270,11 +279,13 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(toggleRect.right == hostRect.right - GetSystemMetrics(SM_CXVSCROLL));
     CHECK_SELECTION(toggleRect.right - toggleRect.left == kGlobalSelectionButtonExtent);
     const int toggleLeft = toggleRect.left;
+    const int toggleTop = toggleRect.top;
     auto checkTogglePosition = [&]() {
         RECT rect = {};
         GetWindowRect(toggle, &rect);
         MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&rect), 2);
         CHECK_SELECTION(rect.left == toggleLeft);
+        CHECK_SELECTION(rect.top == toggleTop);
     };
     auto clickToggle = [&]() {
         SendMessageA(toggle, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
@@ -286,7 +297,7 @@ void TestObstacleCategorySections()
         char text[80] = {};
         TOOLINFOA tool = {};
         tool.cbSize = sizeof(tool);
-        tool.hwnd = host;
+        tool.hwnd = state->globalHost;
         tool.uId = reinterpret_cast<UINT_PTR>(toggle);
         tool.lpszText = text;
         SendMessageA(state->selectionTooltip, TTM_GETTEXTA, sizeof(text), reinterpret_cast<LPARAM>(&tool));
@@ -310,6 +321,34 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(AllCategoriesExpanded());
     ScrollHostTo(host, state->contentHeight);
     CHECK_SELECTION(state->scrollPosition > 0);
+    checkTogglePosition();
+    const int bottomPosition = state->scrollPosition;
+    SendMessageA(toggle, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA), 0);
+    CHECK_SELECTION(state->scrollPosition < bottomPosition);
+    checkTogglePosition();
+    ScrollHostTo(host, state->contentHeight);
+    RECT fixedBefore[3] = {};
+    for (int action = kGlobalSelectionAction; action < kSelectionActionCount; ++action)
+    {
+        HWND control = state->selectionButtons[action];
+        GetWindowRect(control, &fixedBefore[action - kGlobalSelectionAction]);
+        CHECK_SELECTION(GetParent(control) == state->globalHost);
+        CHECK_SELECTION(visibleStyle(control));
+    }
+    // The fixed row's global actions remain usable while scrolled to the bottom.
+    for (int action : { kGlobalSelectionAction + 1, kGlobalSelectionAction })
+    {
+        HWND control = state->selectionButtons[action];
+        SendMessageA(control, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
+        SendMessageA(control, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
+        CHECK_SELECTION(GetFocus() == focusBefore);
+        CHECK_SELECTION(state->scrollPosition > 0);
+        CHECK_SELECTION(AllCategoriesExpanded());
+        for (bool checked : s_categoryChecked) CHECK_SELECTION(checked == (action % 2 == 0));
+        RECT actual = {};
+        GetWindowRect(control, &actual);
+        CHECK_SELECTION(EqualRect(&actual, &fixedBefore[action - kGlobalSelectionAction]));
+    }
     clickToggle();
     CHECK_SELECTION(state->scrollPosition == 0);
     CHECK_SELECTION(!(GetWindowLongA(host, GWL_STYLE) & WS_VSCROLL));
@@ -333,8 +372,6 @@ void TestObstacleModeControls()
     panel.parent = parent;
     panel.sourceToolbar = CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE,
         0, 0, 100, 20, parent, nullptr, s_pluginModule, nullptr);
-    panel.categoryLabel = CreateWindowExA(0, "STATIC", "Obstacle Types", WS_CHILD | WS_VISIBLE,
-        0, 50, 200, 20, parent, nullptr, s_pluginModule, nullptr);
     RECT placeRect = {0, 0, 100, 20};
     panel.placeOverlay = CreatePlaceOverlay(parent, panel.sourceToolbar, placeRect);
     CHECK_SELECTION(panel.placeOverlay && !(GetWindowLongA(panel.placeOverlay, GWL_STYLE) & WS_VISIBLE));
@@ -344,8 +381,11 @@ void TestObstacleModeControls()
     panel.layoutApplied = true;
     CHECK_SELECTION(panel.modeHost && panel.scrollHost);
     auto visibleStyle = [](HWND window) { return (GetWindowLongA(window, GWL_STYLE) & WS_VISIBLE) != 0; };
+    auto* panelScrollState = ScrollHostStateFromWindow(panel.scrollHost);
+    CHECK_SELECTION(!visibleStyle(panelScrollState->globalHost));
     RefreshCategoryButtons(panel);
-    CHECK_SELECTION(!visibleStyle(panel.categoryLabel) && !visibleStyle(panel.scrollHost));
+    CHECK_SELECTION(!visibleStyle(panelScrollState->globalHost));
+    CHECK_SELECTION(!visibleStyle(panel.scrollHost));
     CHECK_SELECTION(!visibleStyle(panel.placeOverlay) && visibleStyle(panel.sourceToolbar));
     CHECK_SELECTION(!ShouldBlockNativePlaceObstaclesCommand());
     auto* mode = reinterpret_cast<ModeHostState*>(GetWindowLongPtrA(panel.modeHost, GWLP_USERDATA));
@@ -361,8 +401,8 @@ void TestObstacleModeControls()
         RefreshCategoryButtons(panel);
         CHECK_SELECTION(CustomObstacleModeEnabled() == (index == 1));
         CHECK_SELECTION(GetFocus() == focus);
-        CHECK_SELECTION(visibleStyle(panel.categoryLabel) == (index == 1));
         CHECK_SELECTION(visibleStyle(panel.scrollHost) == (index == 1));
+        CHECK_SELECTION(visibleStyle(panelScrollState->globalHost) == (index == 1));
         CHECK_SELECTION(visibleStyle(panel.placeOverlay) == (index == 1));
         CHECK_SELECTION(SendMessageA(mode->radios[index], BM_GETCHECK, 0, 0) == BST_CHECKED);
         CHECK_SELECTION(SendMessageA(mode->radios[1-index], BM_GETCHECK, 0, 0) == BST_UNCHECKED);

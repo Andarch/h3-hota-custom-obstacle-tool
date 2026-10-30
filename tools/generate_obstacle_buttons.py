@@ -293,7 +293,14 @@ def parse_layout(
         nonempty = [value for value in row if value]
         if not nonempty:
             continue
-        if len(nonempty) == 1 and row[0] in category_lookup:
+        # A section and its button can share a name (for example Rocks).
+        # Once inside that section, the matching mapped row is its button.
+        is_current_section_button = (
+            row[0] == current_category
+            and row[0] in mapping
+            and mapping[row[0]][0] == current_category
+        )
+        if len(nonempty) == 1 and row[0] in category_lookup and not is_current_section_button:
             if row[0] in layout_categories:
                 raise ValueError(
                     f"Button Layout row {row_number}: duplicate category {row[0]!r}"
