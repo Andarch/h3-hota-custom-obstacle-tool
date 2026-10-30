@@ -4,6 +4,8 @@ Customizable obstacle generation for the HotA Map Editor.
 
 **Version:** v0.9 · **Author:** Andarch
 
+Supports HotA 1.8.1.
+
 The tool adds a Custom mode to the editor's obstacle brush so you can choose which
 obstacles it generates. Standard mode keeps the editor's native obstacle placement.
 
