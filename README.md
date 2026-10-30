@@ -7,7 +7,8 @@ Customizable obstacle generation for the HotA Map Editor.
 Requires HotA 1.8.1.
 
 The tool adds a Custom mode to the editor's obstacle brush so you can choose which
-obstacles it generates. Standard mode keeps the editor's native obstacle placement.
+obstacles it generates and optionally allow all obstacles to be generated on any
+terrain type. Standard mode keeps the editor's native obstacle placement.
 
 ## Requirements
 
@@ -66,6 +67,10 @@ files. The tool does not overwrite original game executables, DLLs, or data tabl
 - **121 selectable obstacle buttons** covering 880 obstacle DEFs, organized into
   Mountains, Reefs, Hills, Mounds, Lakes, Craters, Fissures, Trees, Undergrowth,
   Rocks, Animals, and Miscellaneous.
+- Enables placement of many obstacles not supported by native placement
+  (certain mountain types, sand dunes, glaciers, ice formations, arches, animals,
+  crates, barrels, ropes, sacks, abandoned boats, burnt structures, crumbled structures,
+  bones)   
 - **Compact artwork buttons and hover previews** showing obstacle names, larger
   artwork, and applicable terrains. After painting, buttons unavailable for the
   painted terrain are greyed out. Painting on either map level is considered.
@@ -79,12 +84,6 @@ files. The tool does not overwrite original game executables, DLLs, or data tabl
   option. It affects subsequent generation, not objects already placed.
 - **Selections and category expansion remembered within the session**, including
   when switching modes or leaving and reopening the obstacle tool.
-- **Custom placement adjustments** for actual terrain at transitions, mountain
-  overlap/drawing order, and sand dunes. Selected Sand Dunes can fill remaining
-  eligible painted Sand cells with small dunes. Native collision, passability,
-  and object-limit checks remain in effect.
-- **A Custom-mode minimap color correction for volcano obstacles** and a separate
-  **Help → About Custom Obstacle Tool...** dialog with version, author, and project link.
 
 ## Using Custom mode
 
@@ -97,21 +96,6 @@ files. The tool does not overwrite original game executables, DLLs, or data tabl
 You can set up selections before painting. Generation needs eligible painted
 terrain and at least one selected obstacle applicable to it. Changing selections,
 mode, or the terrain option does not remove or replace existing objects.
-
-## Limitations
-
-- Support is limited to the validated official HotA 1.8.1 editor binaries.
-  Other editor versions and compatibility with other editor plugins are unverified.
-- This is an editor tool. Recipients do not need this plugin simply to open a
-  resulting map, but they still need a game version compatible with the map's
-  HotA format and objects.
-- Mode, obstacle selections, expanded categories, and the all-terrain option are
-  not saved across editor restarts. The launcher can remember the installation path.
-- Very long paths and paths containing characters outside the system's Windows
-  code page are not verified. If loading fails, try a shorter path with basic
-  Latin characters for both the tool and the game.
-- Fresh-PC installation and protected installation folders still need broader
-  testing. A writable tool folder and writable editor `Data` folder are required.
 
 ## Troubleshooting
 
