@@ -342,8 +342,8 @@ def parse_layout(
     missing = sorted(set(mapping) - seen)
     if missing:
         raise ValueError("Button Layout is missing buttons: " + ", ".join(missing))
-    if len(definitions) > 96:
-        raise ValueError(f"Button Layout has {len(definitions)} buttons; maximum is 96")
+    if len(definitions) > 128:
+        raise ValueError(f"Button Layout has {len(definitions)} buttons; maximum is 128")
     return definitions, layout_categories
 
 

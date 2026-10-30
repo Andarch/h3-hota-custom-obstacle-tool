@@ -18,4 +18,4 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
 struct TargetProfile;
 bool InstallDuneFillHook(const TargetProfile& profile, std::string& error);
 void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode);
-void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask, DWORD extendedMask);
+void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask, DWORD extendedMask, DWORD upperMask);

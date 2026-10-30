@@ -230,12 +230,13 @@ namespace
         s_categoryCheckedInitialized = true;
     }
 
-    void GetSelectedButtonMasks(DWORD& lowMask, DWORD& highMask, DWORD& extendedMask)
+    void GetSelectedButtonMasks(DWORD& lowMask, DWORD& highMask, DWORD& extendedMask, DWORD& upperMask)
     {
         EnsureCategoryCheckedInitialized();
         lowMask = 0;
         highMask = 0;
         extendedMask = 0;
+        upperMask = 0;
         for (int index = 0; index < kObstacleButtonCount; ++index)
         {
             if (!s_categoryChecked[index])
@@ -244,8 +245,10 @@ namespace
                 lowMask |= 1u << index;
             else if (index < 64)
                 highMask |= 1u << (index - 32);
-            else
+            else if (index < 96)
                 extendedMask |= 1u << (index - 64);
+            else
+                upperMask |= 1u << (index - 96);
         }
     }
 
@@ -1459,6 +1462,10 @@ namespace
         SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
         // Scrollbar visibility may change the available header width.
         GetClientRect(hwnd, &client);
+        // Reserve the scrollbar's space even while it is hidden so the global
+        // expansion control keeps the same horizontal position on expansion.
+        const int expansionRight = client.right -
+            ((GetWindowLongA(hwnd, GWL_STYLE) & WS_VSCROLL) ? 0 : GetSystemMetrics(SM_CXVSCROLL));
 
         const UINT positionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
         for (int index = 0; index < kObstacleButtonCount; ++index)
@@ -1514,7 +1521,7 @@ namespace
             const int extent = global ? kGlobalSelectionButtonExtent : kSelectionButtonExtent;
             if (state.selectionButtons[index])
                 SetWindowPos(state.selectionButtons[index], nullptr,
-                    index == kExpansionAction ? (client.right > extent ? client.right - extent : 0) :
+                    index == kExpansionAction ? (expansionRight > extent ? expansionRight - extent : 0) :
                         (index % 2) * (extent + (global ? 12 : 6)),
                     (global ? 0 : state.selectionY[index / 2]) - state.scrollPosition,
                     extent, extent, positionFlags |
@@ -2352,8 +2359,9 @@ namespace
         DWORD lowMask = 0;
         DWORD highMask = 0;
         DWORD extendedMask = 0;
-        GetSelectedButtonMasks(lowMask, highMask, extendedMask);
-        SetObstacleButtonSelection(lowMask, highMask, extendedMask);
+        DWORD upperMask = 0;
+        GetSelectedButtonMasks(lowMask, highMask, extendedMask, upperMask);
+        SetObstacleButtonSelection(lowMask, highMask, extendedMask, upperMask);
         SetObstacleGenerationFilterMode(mode);
         SendMessageA(
             parent,

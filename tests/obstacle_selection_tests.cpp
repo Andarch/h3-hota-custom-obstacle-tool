@@ -117,15 +117,15 @@ void TestObstacleCategorySections()
     EnsureCategoryCheckedInitialized();
     memcpy(savedChecked, s_categoryChecked, sizeof(savedChecked));
     memcpy(savedExpanded, s_categoryExpanded, sizeof(savedExpanded));
-    // Every UI selection must pack independently, including both DWORD boundaries.
+    // Every UI selection must pack independently, including every DWORD boundary.
     for (int selected = 0; selected < kObstacleButtonCount; ++selected)
     {
         ZeroMemory(s_categoryChecked, sizeof(s_categoryChecked));
         s_categoryChecked[selected] = true;
-        DWORD low, high, extended;
-        GetSelectedButtonMasks(low, high, extended);
-        DWORD masks[] = { low, high, extended };
-        for (int word = 0; word < 3; ++word)
+        DWORD low, high, extended, upper;
+        GetSelectedButtonMasks(low, high, extended, upper);
+        DWORD masks[] = { low, high, extended, upper };
+        for (int word = 0; word < 4; ++word)
             CHECK_SELECTION(masks[word] == (word == selected / 32 ? 1u << (selected & 31) : 0));
     }
     memcpy(s_categoryChecked, savedChecked, sizeof(savedChecked));
@@ -181,8 +181,8 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(s_categoryExpanded[0] && !s_categoryExpanded[1]);
     CHECK_SELECTION(visibleStyle(state->buttons[0]));
     const int firstHeight = state->headerY[1];
-    DWORD lowBefore, highBefore, extendedBefore, lowAfter, highAfter, extendedAfter;
-    GetSelectedButtonMasks(lowBefore, highBefore, extendedBefore);
+    DWORD lowBefore, highBefore, extendedBefore, upperBefore, lowAfter, highAfter, extendedAfter, upperAfter;
+    GetSelectedButtonMasks(lowBefore, highBefore, extendedBefore, upperBefore);
     HWND focusBefore = GetFocus();
     clickHeader(1);
     CHECK_SELECTION(s_categoryExpanded[0] && s_categoryExpanded[1]);
@@ -201,8 +201,8 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(!button->mouseInside && !button->hot);
     CHECK_SELECTION(state->headerY[1] == kGlobalSelectionRowHeight + kCategoryHeaderHeight &&
         firstHeight > kGlobalSelectionRowHeight + kCategoryHeaderHeight);
-    GetSelectedButtonMasks(lowAfter, highAfter, extendedAfter);
-    CHECK_SELECTION(lowBefore == lowAfter && highBefore == highAfter && extendedBefore == extendedAfter);
+    GetSelectedButtonMasks(lowAfter, highAfter, extendedAfter, upperAfter);
+    CHECK_SELECTION(lowBefore == lowAfter && highBefore == highAfter && extendedBefore == extendedAfter && upperBefore == upperAfter);
     // Hidden, terrain-disabled selections still count; select-none updates only its section.
     SetCategoryButtonEnabled(state->buttons[0], false);
     CHECK_SELECTION(SelectedCountForCategory(0) > 0);
@@ -266,8 +266,16 @@ void TestObstacleCategorySections()
     GetWindowRect(toggle, &toggleRect);
     GetClientRect(host, &hostRect);
     MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&toggleRect), 2);
-    CHECK_SELECTION(toggleRect.right == hostRect.right);
+    CHECK_SELECTION(!(GetWindowLongA(host, GWL_STYLE) & WS_VSCROLL));
+    CHECK_SELECTION(toggleRect.right == hostRect.right - GetSystemMetrics(SM_CXVSCROLL));
     CHECK_SELECTION(toggleRect.right - toggleRect.left == kGlobalSelectionButtonExtent);
+    const int toggleLeft = toggleRect.left;
+    auto checkTogglePosition = [&]() {
+        RECT rect = {};
+        GetWindowRect(toggle, &rect);
+        MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&rect), 2);
+        CHECK_SELECTION(rect.left == toggleLeft);
+    };
     auto clickToggle = [&]() {
         SendMessageA(toggle, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
         SendMessageA(toggle, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
@@ -288,11 +296,14 @@ void TestObstacleCategorySections()
     checkTooltip();
     clickToggle();
     CHECK_SELECTION(AllCategoriesExpanded());
+    CHECK_SELECTION(GetWindowLongA(host, GWL_STYLE) & WS_VSCROLL);
+    checkTogglePosition();
     CHECK_SELECTION(strcmp(ExpansionActionText(), "Collapse All") == 0);
     checkTooltip();
     for (HWND obstacle : state->buttons) CHECK_SELECTION(visibleStyle(obstacle));
     clickHeader(1);
     CHECK_SELECTION(!AllCategoriesExpanded());
+    checkTogglePosition();
     CHECK_SELECTION(strcmp(ExpansionActionText(), "Expand All") == 0);
     checkTooltip();
     clickToggle();
@@ -301,6 +312,8 @@ void TestObstacleCategorySections()
     CHECK_SELECTION(state->scrollPosition > 0);
     clickToggle();
     CHECK_SELECTION(state->scrollPosition == 0);
+    CHECK_SELECTION(!(GetWindowLongA(host, GWL_STYLE) & WS_VSCROLL));
+    checkTogglePosition();
     for (bool expanded : s_categoryExpanded) CHECK_SELECTION(!expanded);
     for (HWND obstacle : state->buttons) CHECK_SELECTION(!visibleStyle(obstacle));
     CHECK_SELECTION(strcmp(ExpansionActionText(), "Expand All") == 0);

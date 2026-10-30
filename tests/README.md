@@ -33,11 +33,12 @@ checked counts (including terrain-disabled buttons), regular/bold font weights,
 hidden controls, preserved generation selections and focus, cleared hover state,
 panel recreation, and scrollbar clamping when sections collapse. They use
 disposable windows and do not load a game or change maps.
-Global Select All/None cases verify larger control dimensions, all 91 selections
+Global Select All/None cases verify larger control dimensions, all 105 selections
 including collapsed/terrain-disabled buttons, header counts, preserved expansion,
 and focus-preserving clicks.
 
-The expansion toggle tests cover right alignment, Expand All/Collapse All
+The expansion toggle tests cover stable alignment with scrollbar space reserved,
+unchanged horizontal position as the scrollbar appears/disappears, Expand All/Collapse All
 tooltips, individual header changes, mixed states, obstacle visibility, unchanged
 selections and focus, and scrollbar clamping after collapsing every section.
 
@@ -56,7 +57,7 @@ These tests do not replace live hook-byte validation or editor testing. The
 version-specific native parser/startup smoke results and remaining manual checks
 are recorded in `CODEX_HANDOFF.md`.
 
-Selection capacity tests pack each of the 91 UI buttons independently and check
-candidate acceptance/rejection against all 91 selections, including indices
-31/32 and 63/64, invalid indices, and inactive-filter bypass. The workbook
-generator and plugin guard the three-DWORD capacity (96 buttons).
+Selection capacity tests pack each of the 105 UI buttons independently and check
+candidate acceptance/rejection against all 105 selections, including indices
+31/32, 63/64 and 95/96, invalid indices, and inactive-filter bypass. The workbook
+generator and plugin guard the four-DWORD capacity (128 buttons).

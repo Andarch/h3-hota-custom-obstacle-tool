@@ -4,8 +4,43 @@ Last updated: 2026-10-29
 
 ## Next Chat Starting Point
 
+- User requested this checkpoint be committed and pushed on 2026-10-29.
+  Current panel has 105 buttons in twelve categories: Mountains has 20 and
+  Undergrowth has 15. Selection capacity is 128; buttons are 40x40 with 36x36
+  icons. This checkpoint also includes the stable expansion-toggle position.
+  Latest Debug/Release Win32 builds and compatibility suites pass. Visual and
+  painted-map acceptance remains limited to the evidence recorded below.
+- Mountains update (2026-10-29): regenerated from the latest v2 workbook using
+  the standard generator and 1.8.1 edobjts validation. Added Ice Arches (two DEFs
+  formerly in Ice Formations) and Wasteland Arches (one DEF formerly in Wasteland
+  Mountains), with workbook icons/previews and rearranged mountain button rows.
+  Mountains has 20 buttons; total is 105 buttons / twelve categories. Existing
+  button masks/defaults/visuals, all 880 DEF hashes and borrow sources, and the
+  28 override payloads are retained. Layout-dependent indices are regenerated.
+  Debug/Release Win32 builds and compatibility suites pass, including selection
+  checks for all 105 buttons. Visual acceptance of the new layout is pending.
+- Undergrowth update (2026-10-29): regenerated from the latest v2 workbook.
+  Undergrowth remains one category, expanded from 3 to 15 buttons: eight Plants,
+  four Flowers and three Mushrooms groups, in workbook layout order with their
+  terrain masks and icons/previews. At that stage the total was 103 buttons / twelve
+  categories. All 880 DEF hashes, borrowed-source indices, 28 override payloads
+  and 12 borrowed sources are retained. No workbook or raw asset changes.
+- Selection capacity is now 128 (four DWORDs), with generator/compile guards.
+  UI packing, filter reads and callers cover indices 96..102 without shifts
+  beyond 31 bits. Debug/Release Win32 builds and compatibility suites pass,
+  including independent UI packing and 103-by-103 candidate selection checks
+  across 31/32, 63/64 and 95/96. Both DLLs initialize in isolated 1.8.1 editors
+  with native object-limit bytes unchanged. New Undergrowth visuals await user
+  acceptance; 40x40 buttons, 36x36 icons and the preceding toggle fix are retained.
+- Expansion toggle position fix (2026-10-29): reserve the vertical scrollbar's
+  width when the scroll host has no scrollbar, placing the toggle at its expanded
+  horizontal position from startup. Header width and scrollbar behavior remain
+  unchanged. Debug/Release Win32 builds and compatibility suites pass; disposable
+  window tests verify the same toggle x-coordinate before expansion, with the
+  scrollbar shown, in mixed states, and after collapsing hides the scrollbar.
+  Visual acceptance in the user's editor is pending.
 - User accepted the latest workbook updates and Reefs ordering on 2026-10-29,
-  and requested this checkpoint be committed and pushed. Current UI has 91
+  and requested that checkpoint be committed and pushed. That UI had 91
   buttons in twelve categories, with Reefs second, Lakes, Craters and Fissures.
   This supersedes pending visual notes for these category/icon updates. Broader
   painted-map and underground regression status remains as recorded below.

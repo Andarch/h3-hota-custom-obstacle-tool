@@ -162,7 +162,8 @@ namespace
     volatile LONG s_selectedButtonMaskLow = 0;
     volatile LONG s_selectedButtonMaskHigh = 0;
     volatile LONG s_selectedButtonMaskExtended = 0;
-    static_assert(kObstacleButtonCount <= 96, "Button selection masks need more capacity");
+    volatile LONG s_selectedButtonMaskUpper = 0;
+    static_assert(kObstacleButtonCount <= 128, "Button selection masks need more capacity");
     volatile LONG s_buttonBorrowAssignments = 0;
 
     struct VariantTraceRowStats
@@ -326,7 +327,8 @@ namespace
             return false;
         const DWORD mask = static_cast<DWORD>(InterlockedCompareExchange(
             buttonIndex < 32 ? &s_selectedButtonMaskLow :
-                buttonIndex < 64 ? &s_selectedButtonMaskHigh : &s_selectedButtonMaskExtended,
+                buttonIndex < 64 ? &s_selectedButtonMaskHigh :
+                buttonIndex < 96 ? &s_selectedButtonMaskExtended : &s_selectedButtonMaskUpper,
             0,
             0));
         return (mask & (1u << (buttonIndex & 31))) != 0;
@@ -2110,11 +2112,12 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
     InterlockedExchange(&s_generationFilterMode, static_cast<LONG>(mode));
 }
 
-void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask, DWORD extendedMask)
+void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask, DWORD extendedMask, DWORD upperMask)
 {
     InterlockedExchange(&s_selectedButtonMaskLow, static_cast<LONG>(lowMask));
     InterlockedExchange(&s_selectedButtonMaskHigh, static_cast<LONG>(highMask));
     InterlockedExchange(&s_selectedButtonMaskExtended, static_cast<LONG>(extendedMask));
+    InterlockedExchange(&s_selectedButtonMaskUpper, static_cast<LONG>(upperMask));
 }
 
 bool CustomObstacleModeEnabled()
