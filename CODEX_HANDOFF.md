@@ -4,6 +4,42 @@ Last updated: 2026-10-30
 
 ## Next Chat Starting Point
 
+- User accepted Allow all terrains on 2026-10-30 and requested this checkpoint
+  be committed and pushed. This supersedes pending checkbox/layout acceptance;
+  exhaustive saved-map/game regression is not established by that feedback.
+- Allow all terrains implemented (2026-10-30).
+  An unchecked-at-startup checkbox sits above the fixed global controls in Custom
+  mode. It stays enabled before/after painting, retains its setting through mode
+  and panel/tool switches within the session, and is hidden/inactive in Default.
+  Buttons and hover-card terrain strips use effective mask 0xDFF (all eleven
+  terrains except Rock/Void bit 9) while checked; unchecked uses workbook masks.
+  Selections are preserved; the workbook and original game files are unchanged.
+- Generation snapshots the option at selected-run start. Existing guarded parser
+  fallback hook broadens only selected, mapped, generation-owned templates at
+  +0x14/+0x18 AFTER native firstTerrain/RandTrn row matching. Ordinary native rows
+  also receive the existing private selected-object rules when active: prohibited
+  terrain weights become 5, native usable weights and overlap rules are retained,
+  and existing expanded-terrain adjacency handling is reused. No new hooks or
+  shared-cache replacement. Mask-write failure rejects placement for that run.
+  Rock/Void remains excluded; mountain/dune exceptions and Sand-only filler
+  retain their existing scope. Turning off restores workbook behavior on the
+  next run; already placed objects are unchanged.
+- Verification: both Win32 builds, compatibility suites and actual DLL startup
+  pass. Tests cover checkbox click/focus/state/paint independence, all 121 button
+  applicability masks, persistence/recreation, private weights and native overlap
+  preservation, unselected exclusions, per-run snapshot, failure rejection and
+  Default/unchecked restoration. Preview sizing/drawing share the effective mask.
+- Runtime verified in isolated 1.8.1 editors with Debug and optimized Release
+  probes: all 892 mapped wrappers (880 DEFs, including native duplicate rows) keep
+  their original firstTerrain and RandTrn row IDs; modified template pointers
+  lie inside each generator's own 76-byte template vector. Real native generation
+  succeeds for Dirt Mountains on Water, Large Reefs on Grass, Snow Trees on Lava,
+  Sand Dunes on Grass, Snow Trees on underground Grass and mixed Dirt/Water
+  mountains. Off/on/off restores each tested original exclusion; Void generates
+  nothing in either setting. Original object-limit bytes remain unchanged.
+  Evidence: ignored `scratch/all_terrains_probe.cpp/.vcxproj` and
+  `scratch/all_terrains_probe_{debug,release}.txt`. Probes do not establish visual
+  correctness of full saved maps. User subsequently accepted the feature.
 - User visually accepted the 15-button Rocks update on 2026-10-30 and requested
   it be committed and pushed. Current panel has 121 buttons / twelve categories.
 - Rocks split (2026-10-30): regenerated from the current v2 workbook using the

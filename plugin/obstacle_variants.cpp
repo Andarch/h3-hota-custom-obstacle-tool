@@ -29,7 +29,9 @@ namespace
     constexpr int kExpansionAction = kGlobalSelectionAction + 2;
     constexpr int kSelectionActionCount = kExpansionAction + 1;
     constexpr int kGlobalSelectionButtonExtent = 28;
-    constexpr int kGlobalSelectionRowHeight = 36;
+    constexpr int kAllTerrainsCommand = 4190;
+    constexpr int kAllTerrainsOptionHeight = 24;
+    constexpr int kGlobalSelectionRowHeight = 36 + kAllTerrainsOptionHeight;
     constexpr int kCategoryGlyphExtent = 24;
     constexpr int kCategoryRowGap = 4;
     constexpr int kCategoryHeaderHeight = 24;
@@ -84,6 +86,7 @@ namespace
     struct ScrollHostState
     {
         HWND globalHost = nullptr;
+        HWND allTerrainsCheckbox = nullptr;
         HWND headers[kObstacleCategoryCount] = {};
         int headerY[kObstacleCategoryCount] = {};
         int selectedCounts[kObstacleCategoryCount] = {};
@@ -580,7 +583,7 @@ namespace
         const ObstacleButtonDefinition* definition =
             ObstacleButtonDefinitionAt(index);
         return definition &&
-            (enablement.terrainMask & definition->terrainMask) != 0;
+            (enablement.terrainMask & EffectiveObstacleTerrainMask(definition->terrainMask)) != 0;
     }
 
     bool CategoryCanContributeToGeneration(int index, const CategoryEnablement& enablement)
@@ -589,7 +592,7 @@ namespace
             ObstacleButtonDefinitionAt(index);
         return enablement.hasPaintedCells &&
             definition &&
-            (enablement.terrainMask & definition->terrainMask) != 0 &&
+            (enablement.terrainMask & EffectiveObstacleTerrainMask(definition->terrainMask)) != 0 &&
             s_categoryChecked[index];
     }
 
@@ -676,7 +679,11 @@ namespace
         auto* scrollState = reinterpret_cast<ScrollHostState*>(
             GetWindowLongPtrA(panel.scrollHost, GWLP_USERDATA));
         if (scrollState && scrollState->globalHost)
+        {
             ShowWindow(scrollState->globalHost, custom ? SW_SHOWNA : SW_HIDE);
+            SendMessageA(scrollState->allTerrainsCheckbox, BM_SETCHECK,
+                AllObstacleTerrainsEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+        }
         ShowWindow(panel.placeOverlay, custom ? SW_SHOWNA : SW_HIDE);
         if (panel.modeHost)
         {
@@ -1527,6 +1534,9 @@ namespace
             }
         }
 
+        if (state.allTerrainsCheckbox)
+            SetWindowPos(state.allTerrainsCheckbox, nullptr, 0, 0,
+                expansionRight > 0 ? expansionRight : 1, kAllTerrainsOptionHeight, positionFlags);
         for (int index = 0; index < kSelectionActionCount; ++index)
         {
             const bool global = index >= kGlobalSelectionAction;
@@ -1535,7 +1545,7 @@ namespace
                 SetWindowPos(state.selectionButtons[index], nullptr,
                     index == kExpansionAction ? (expansionRight > extent ? expansionRight - extent : 0) :
                         (index % 2) * (extent + (global ? 12 : 6)),
-                    global ? 0 : state.selectionY[index / 2] - state.scrollPosition,
+                    global ? kAllTerrainsOptionHeight : state.selectionY[index / 2] - state.scrollPosition,
                     extent, extent, positionFlags |
                     (global || s_categoryExpanded[index / 2] ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
         }
@@ -1772,6 +1782,16 @@ namespace
         case WM_COMMAND:
         {
             ScrollHostState* state = ScrollHostStateFromWindow(hwnd);
+            if (state && LOWORD(wParam) == kAllTerrainsCommand && HIWORD(wParam) == BN_CLICKED &&
+                reinterpret_cast<HWND>(lParam) == state->allTerrainsCheckbox)
+            {
+                SetAllObstacleTerrains(!AllObstacleTerrainsEnabled());
+                SendMessageA(state->allTerrainsCheckbox, BM_SETCHECK,
+                    AllObstacleTerrainsEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+                HideObstaclePreview(nullptr);
+                RefreshCategoryButtonsForToolbar(state->sourceToolbar);
+                return 0;
+            }
             const int category = LOWORD(wParam) - kCategoryHeaderCommandBase;
             if (state && HIWORD(wParam) == BN_CLICKED && category >= 0 &&
                 category < kObstacleCategoryCount &&
@@ -2123,6 +2143,20 @@ namespace
             DestroyWindow(hwnd);
             return nullptr;
         }
+        state->allTerrainsCheckbox = CreateWindowExA(0, "BUTTON", "Allow all terrains",
+            WS_CHILD | WS_VISIBLE | BS_CHECKBOX, 0, 0, rect.right - rect.left,
+            kAllTerrainsOptionHeight, state->globalHost,
+            reinterpret_cast<HMENU>(kAllTerrainsCommand), s_pluginModule, nullptr);
+        if (!state->allTerrainsCheckbox || !SetWindowSubclass(state->allTerrainsCheckbox,
+            SelectionButtonSubclass, 1, 0))
+        {
+            DestroyWindow(hwnd);
+            return nullptr;
+        }
+        SendMessageA(state->allTerrainsCheckbox, WM_SETFONT,
+            reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+        SendMessageA(state->allTerrainsCheckbox, BM_SETCHECK,
+            AllObstacleTerrainsEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
         LayoutScrollHost(hwnd, *state);
         return hwnd;
     }
@@ -2672,6 +2706,18 @@ namespace
                 CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
                 panel.scrollHost, nullptr, s_pluginModule, nullptr);
             createdAll = scrollState->selectionTooltip != nullptr;
+            if (createdAll)
+            {
+                static char allTerrainsTip[] = "Allow selected obstacles on any terrain except Rock/Void.";
+                TOOLINFOA tool = {};
+                tool.cbSize = sizeof(tool);
+                tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+                tool.hwnd = scrollState->globalHost;
+                tool.uId = reinterpret_cast<UINT_PTR>(scrollState->allTerrainsCheckbox);
+                tool.lpszText = allTerrainsTip;
+                createdAll = SendMessageA(scrollState->selectionTooltip, TTM_ADDTOOLA,
+                    0, reinterpret_cast<LPARAM>(&tool)) != FALSE;
+            }
             static char allText[] = "Select All";
             static char noneText[] = "Select None";
             for (int action = 0; createdAll && action < kSelectionActionCount; ++action)

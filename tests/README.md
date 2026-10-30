@@ -73,3 +73,12 @@ python tests\test_generate_obstacle_buttons.py
 
 These cover a section and button sharing the name Rocks, while preserving
 duplicate category/button rejection.
+
+Allow-all-terrain cases exercise checkbox clicks without taking focus, availability
+independent of painting, all button applicability masks (including Water and Void),
+mode/panel persistence, and Default bypass. Generation tests cover selected-only
+template changes after native row matching, private terrain weights, unchanged
+native overlap arrays, per-run option snapshots, failure rejection and restoration
+when unchecked. Preview sizing and terrain icons use the same effective-mask helper.
+Isolated native-generation probe evidence and visual acceptance limits are recorded
+in `CODEX_HANDOFF.md`.

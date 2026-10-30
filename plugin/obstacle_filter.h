@@ -19,3 +19,8 @@ struct TargetProfile;
 bool InstallDuneFillHook(const TargetProfile& profile, std::string& error);
 void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode);
 void SetObstacleButtonSelection(DWORD lowMask, DWORD highMask, DWORD extendedMask, DWORD upperMask);
+
+constexpr DWORD kAllObstacleTerrainMask = 0xDFFu; // Twelve terrains, excluding Rock/Void (9).
+bool AllObstacleTerrainsEnabled();
+void SetAllObstacleTerrains(bool enabled);
+DWORD EffectiveObstacleTerrainMask(DWORD workbookMask);

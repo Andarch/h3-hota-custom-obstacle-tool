@@ -4,6 +4,7 @@
 #include "logger.h"
 #include "obstacle_button_data.h"
 #include "obstacle_def_images.h"
+#include "obstacle_filter.h"
 
 #include <cassert>
 #include <vector>
@@ -130,7 +131,7 @@ namespace
         if (!definition)
             return kPreviewMinimumHeight;
         return PreviewWindowHeightForRows(
-            BuildTerrainIconLayout(definition->terrainMask).rowCount);
+            BuildTerrainIconLayout(EffectiveObstacleTerrainMask(definition->terrainMask)).rowCount);
     }
 
 #ifdef _DEBUG
@@ -403,7 +404,7 @@ namespace
         const ObstacleButtonDefinition* definition =
             ObstacleButtonDefinitionAt(s_previewButtonIndex);
         if (definition)
-            DrawTerrainIcons(hdc, definition->terrainMask);
+            DrawTerrainIcons(hdc, EffectiveObstacleTerrainMask(definition->terrainMask));
     }
 
     LRESULT CALLBACK PreviewWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)

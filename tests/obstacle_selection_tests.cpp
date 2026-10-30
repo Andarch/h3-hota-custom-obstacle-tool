@@ -394,12 +394,39 @@ void TestObstacleModeControls()
     memcpy(checked, s_categoryChecked, sizeof(checked));
     memcpy(expanded, s_categoryExpanded, sizeof(expanded));
     HWND focus = GetFocus();
+    bool optionSet = false;
     for (int index : {1, 0, 1})
     {
         SendMessageA(mode->radios[index], WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
         SendMessageA(mode->radios[index], WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
         RefreshCategoryButtons(panel);
         CHECK_SELECTION(CustomObstacleModeEnabled() == (index == 1));
+        HWND checkbox = panelScrollState->allTerrainsCheckbox;
+        CHECK_SELECTION(IsWindowEnabled(checkbox));
+        if (index == 1 && !optionSet)
+        {
+            CHECK_SELECTION(SendMessageA(checkbox, BM_GETCHECK, 0, 0) == BST_UNCHECKED);
+            SendMessageA(checkbox, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
+            SendMessageA(checkbox, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
+            CHECK_SELECTION(AllObstacleTerrainsEnabled());
+            CategoryEnablement water = { true, 1u << 8 }, rock = { true, 1u << 9 }, empty = {};
+            for (int button = 0; button < kObstacleButtonCount; ++button)
+            {
+                CHECK_SELECTION(CategoryAppliesToPaintedTerrain(button, water));
+                CHECK_SELECTION(!CategoryAppliesToPaintedTerrain(button, rock));
+                CHECK_SELECTION(CategoryAppliesToPaintedTerrain(button, empty));
+            }
+            // The same checkbox remains interactive after painting.
+            SendMessageA(checkbox, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
+            SendMessageA(checkbox, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
+            CHECK_SELECTION(!AllObstacleTerrainsEnabled());
+            CHECK_SELECTION(!CategoryAppliesToPaintedTerrain(0, water));
+            SendMessageA(checkbox, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(5, 5));
+            SendMessageA(checkbox, WM_LBUTTONUP, 0, MAKELPARAM(5, 5));
+            optionSet = true;
+        }
+        CHECK_SELECTION(AllObstacleTerrainsEnabled() == (index == 1));
+        CHECK_SELECTION(SendMessageA(checkbox, BM_GETCHECK, 0, 0) == (index == 1 ? BST_CHECKED : BST_UNCHECKED));
         CHECK_SELECTION(GetFocus() == focus);
         CHECK_SELECTION(visibleStyle(panel.scrollHost) == (index == 1));
         CHECK_SELECTION(visibleStyle(panelScrollState->globalHost) == (index == 1));
@@ -413,8 +440,15 @@ void TestObstacleModeControls()
     panel.modeHost = CreateModeHost(parent, 0, 70, 280, nullptr);
     mode = reinterpret_cast<ModeHostState*>(GetWindowLongPtrA(panel.modeHost, GWLP_USERDATA));
     CHECK_SELECTION(CustomObstacleModeEnabled());
+    RECT recreatedRect = {0, 100, 280, 500};
+    HWND recreated = CreateScrollHost(parent, recreatedRect);
+    CHECK_SELECTION(recreated);
+    CHECK_SELECTION(SendMessageA(ScrollHostStateFromWindow(recreated)->allTerrainsCheckbox,
+        BM_GETCHECK, 0, 0) == BST_CHECKED);
+    DestroyWindow(recreated);
     CHECK_SELECTION(SendMessageA(mode->radios[1], BM_GETCHECK, 0, 0) == BST_CHECKED);
     SetCustomObstacleMode(false);
+    SetAllObstacleTerrains(false);
     // Default Shift+O commands are left intact by the queued-message hook.
     MSG command = {}; command.hwnd = parent; command.message = WM_COMMAND;
     command.wParam = kVanillaPlaceObstaclesCommand;

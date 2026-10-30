@@ -12,6 +12,77 @@
 
 namespace
 {
+    void TestAllTerrainGeneration()
+    {
+        SetCustomObstacleMode(true);
+        SetAllObstacleTerrains(false);
+        CHECK(EffectiveObstacleTerrainMask(1) == 1);
+        DWORD source[19] = {};
+        int weights[12], adjacent[201], overlap[201];
+        for (int& value : weights) value = -5000;
+        weights[0] = 10;
+        for (int& value : adjacent) value = -5000;
+        for (int& value : overlap) value = -5000;
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        source[0] = 6;
+        source[1] = reinterpret_cast<DWORD>(&holder);
+        source[12] = reinterpret_cast<DWORD>(adjacent);
+        source[13] = source[12] + sizeof(adjacent);
+        source[16] = reinterpret_cast<DWORD>(overlap);
+        source[17] = source[16] + sizeof(overlap);
+        DWORD object[19] = {};
+        object[0] = 7300; object[5] = 1; object[6] = 1; object[7] = 134;
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object), reinterpret_cast<DWORD>("avlmtdr1.def"));
+        DWORD wrapper[5] = { reinterpret_cast<DWORD>(object), 0, 0, 0, reinterpret_cast<DWORD>(source) };
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(wrapper));
+        CHECK(object[5] == 1 && object[6] == 1);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)));
+        CHECK(wrapper[4] == reinterpret_cast<DWORD>(source));
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        SetAllObstacleTerrains(true);
+        CHECK(EffectiveObstacleTerrainMask(1) == kAllObstacleTerrainMask);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        CHECK(s_generationAllTerrains);
+        SetObstacleButtonSelection(0, 0, 0, 0);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(wrapper));
+        CHECK(object[5] == 1 && object[6] == 1);
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)));
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(wrapper));
+        CHECK(object[5] == kAllObstacleTerrainMask && object[6] == kAllObstacleTerrainMask);
+        CHECK(wrapper[1] == 0 && wrapper[4] == reinterpret_cast<DWORD>(source));
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)));
+        const auto& rules = s_selectedObjectRules.at(reinterpret_cast<DWORD>(object));
+        for (int terrain = 0; terrain < 12; ++terrain)
+        {
+            CHECK(rules.weights[terrain] == (terrain == 9 ? -5000 : terrain == 0 ? 10 : 5));
+            CHECK(weights[terrain] == (terrain == 0 ? 10 : -5000));
+        }
+        for (int index = 0; index < 201; ++index) CHECK(rules.overlap[index] == overlap[index]);
+        SetAllObstacleTerrains(false); // The active run keeps its captured option.
+        CHECK(s_generationAllTerrains && EffectiveObstacleTerrainMask(1) == 1);
+        s_allTerrainTemplateFailure = true;
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)));
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        CHECK(!s_generationAllTerrains);
+        object[5] = object[6] = 1;
+        wrapper[4] = reinterpret_cast<DWORD>(source);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)));
+        CHECK(wrapper[4] == reinterpret_cast<DWORD>(source));
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        SetAllObstacleTerrains(true);
+        SetCustomObstacleMode(false);
+        CHECK(!AllObstacleTerrainsEnabled() && EffectiveObstacleTerrainMask(1) == 1);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        CHECK(!s_generationAllTerrains);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)));
+        SetAllObstacleTerrains(false);
+        SetCustomObstacleMode(true);
+    }
+
     void TestButtonSelectionCapacity()
     {
         DWORD object[19] = {};
@@ -542,6 +613,7 @@ int main()
     CHECK(actual == 200);
 
     TestButtonSelectionCapacity();
+    TestAllTerrainGeneration();
     TestSelectedRules();
     TestParserThunks();
     TestPredicateThunk();
