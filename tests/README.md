@@ -33,7 +33,7 @@ checked counts (including terrain-disabled buttons), regular/bold font weights,
 hidden controls, preserved generation selections and focus, cleared hover state,
 panel recreation, and scrollbar clamping when sections collapse. They use
 disposable windows and do not load a game or change maps.
-Global Select All/None cases verify larger control dimensions, all 107 selections
+Global Select All/None cases verify larger control dimensions, all 121 selections
 including collapsed/terrain-disabled buttons, header counts, preserved expansion,
 and focus-preserving clicks.
 
@@ -60,8 +60,8 @@ These tests do not replace live hook-byte validation or editor testing. The
 version-specific native parser/startup smoke results and remaining manual checks
 are recorded in `CODEX_HANDOFF.md`.
 
-Selection capacity tests pack each of the 107 UI buttons independently and check
-candidate acceptance/rejection against all 107 selections, including indices
+Selection capacity tests pack each of the 121 UI buttons independently and check
+candidate acceptance/rejection against all 121 selections, including indices
 31/32, 63/64 and 95/96, invalid indices, and inactive-filter bypass. The workbook
 generator and plugin guard the four-DWORD capacity (128 buttons).
 

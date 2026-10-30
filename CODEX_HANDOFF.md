@@ -1,9 +1,22 @@
 # Codex Project Handoff
 
-Last updated: 2026-10-29
+Last updated: 2026-10-30
 
 ## Next Chat Starting Point
 
+- User visually accepted the 15-button Rocks update on 2026-10-30 and requested
+  it be committed and pushed. Current panel has 121 buttons / twelve categories.
+- Rocks split (2026-10-30): regenerated from the current v2 workbook using the
+  standard generator and 1.8.1 edobjts validation. Replaced the single Rocks
+  button with 15 terrain-specific Rocks/Outcroppings buttons in workbook order,
+  with their masks and icon/preview definitions. Total is 121 buttons / twelve
+  categories, within the existing 128-button capacity. All 103 former Rocks DEFs
+  are assigned to the new buttons. Other existing masks/defaults/visuals, all
+  880 DEF hashes and borrow-source indices, and 28 override payloads are retained.
+  Workbook is untouched; no raw assets added. Debug/Release Win32 builds,
+  compatibility suites (all 121 selections) and generator regressions pass.
+  Both DLLs initialize in isolated 1.8.1 editors with native object-limit bytes
+  unchanged. User accepted the new Rocks buttons in the editor.
 - User requested this checkpoint be committed and pushed on 2026-10-29.
   Current panel has 107 buttons / twelve categories. Global Select All/None
   and Expand/Collapse All are fixed below Mode; Obstacle Types is removed.
