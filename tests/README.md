@@ -15,8 +15,8 @@ $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Curren
 .\scratch\tests\Release\compatibility_tests.exe
 ```
 
-Coverage includes profile rejection, expected-byte guards, RandTrn row insertion
-and bounds, terrain lookup, explicit block IDs, parser-thunk stack offsets and
+Coverage includes profile rejection, expected-byte guards, native RandTrn row
+bounds, explicit diagnostic block IDs, parser-thunk stack offsets and
 flag preservation, and the fastcall predicate's accept/reject paths.
 Terrain geometry tests cover all seven map sizes and reject malformed chunk
 vectors, unsupported dimensions, and overflow-sized values. This calculation
@@ -45,7 +45,8 @@ The three global controls have a separate fixed host above the category viewport
 Cases verify unchanged positions while scrolled, all three actions at the bottom,
 wheel forwarding, host cleanup on recreation and Default/Custom visibility.
 
-Mode tests cover Default startup, radio check states and clicks, hidden custom
+Mode tests cover Standard startup, radio captions/tooltips, tooltip cleanup and
+recreation, radio check states and clicks, hidden custom
 controls/native toolbar visibility, remembered mode and selections, preserved
 focus, and unchanged queued Default placement commands. Filter tests verify that
 Default bypasses diagnostic exclusions and custom generation/overlay requests.

@@ -1,30 +1,40 @@
-# Obstacle Plugin Smoke Test
+# Editor and Obstacle Smoke Tests
 
-Current scope (2026-10-28): obstacle-tool enhancements only. The former
-255-garrison feature was removed; all object limits use native behavior.
-Historical acceptance results are recorded in `CODEX_HANDOFF.md`.
+Build Debug and Release Win32 sequentially, then run the compatibility suites
+using `tests/README.md`. Compare a direct editor launch with a fresh launch through
+`HotACustomObstacleTool.exe`, with its matching DLL beside it.
 
-Build Debug and Release Win32 sequentially and run compatibility suites using
-`tests/README.md`. Compare a direct editor launch with a fresh launch through
-the rebuilt plugin launcher.
+## Editor regression
 
-## Editor Regression Checks
+- Startup, shortcuts, new/open/save/save-as, map validation and close.
+- Native object limits and normal manual object placement remain unchanged.
+- Standard startup: native obstacle placement, command enablement and minimap colors.
+- Standard/Custom clicks and tooltips preserve focus, shortcuts and remembered settings.
 
-- Editor startup, shortcuts, new/open/save/save-as, validation, and close.
-- Native garrison limit: the 49th garrison is rejected as in the direct-launch baseline.
-- Skill-booster limits remain native.
-- No repeated-placement command or automatic selection rearming.
+## Custom obstacle controls
 
-## Obstacle Checks
+- All 121 buttons and twelve categories match the workbook, including icons/previews.
+- Each section starts collapsed; counts/bold headers include unavailable selections.
+- Global and category Select All/None, mixed-state expansion toggle and fixed row.
+- Scroll to the bottom and operate all three global controls; verify no horizontal jump.
+- Remembered selections/expansion and clean panel recreation after tool/mode switches.
+- Painted-terrain availability and Place Obstacles/Shift+O on both map layers and
+  multiple map sizes; no selected applicable button means no generation.
+- Generate, clear, undo/redo, and Ctrl+Z/Ctrl+S/Shift+O accelerator behavior.
+- Hover cards show correct terrain icons and all selected representative DEFs.
 
-- All 60 buttons, icons, previews, category selection controls, and scrolling.
-- Painted-terrain applicability and Place Obstacles enablement on both layers.
-- Checked-button filtering, generation, clearing, undo/redo, and Shift+O.
-- Accepted mountain transition/order behavior, small-dune gap filling, and
-  volcano minimap colors.
-- Vanilla generation when custom filtering is inactive.
-- Default/Custom radios: Default hides Obstacle Types and retains native
-  placement/enablement/colors; Custom restores selections and expanded sections.
+## Placement adjustments
 
-These are live regression checks, not newly recorded passes. Underground visual
-acceptance remains pending as described in the handoff.
+- Mountains across terrain transitions and the accepted mountain-only order behavior.
+- Sand dune overlap and small-dune second-pass gap filling on painted Sand.
+- Workbook-only additions, borrowed rules and missing-row objects such as Maples.
+- Custom volcano minimap shade; return Standard to restore native colors.
+- Allow all terrains: unchecked at startup, clickable before/after painting, every
+  button applies to non-void paint and previews show all eleven terrains.
+- Exercise mountains on Water, reefs on Grass, underground, mixed terrains and Void.
+  Uncheck and generate again to confirm original restrictions return.
+- Mode/terrain setting changes do not edit previously placed objects. Save/reopen a
+  disposable map and inspect results in the game before claiming game-level coverage.
+
+These are verification scenarios, not a record that every visual workflow has been
+retested at each checkpoint. Current evidence and acceptance limits are in the handoff.

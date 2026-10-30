@@ -5,8 +5,6 @@
 enum class ObstacleGenerationFilterMode
 {
     None = 0,
-    ThickOnly = 1,
-    ThinOnly = 2,
     ButtonSelection = 3,
 };
 

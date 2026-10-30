@@ -49,7 +49,6 @@
     <ClCompile Include="..\plugin\logger.cpp" />
     <ClCompile Include="..\plugin\target_profile.cpp" />
     <ClCompile Include="..\plugin\obstacle_button_data.cpp" />
-    <ClCompile Include="..\plugin\obstacle_classification.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

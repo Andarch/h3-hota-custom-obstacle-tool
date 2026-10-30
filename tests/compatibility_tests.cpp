@@ -331,14 +331,14 @@ namespace
         DWORD weightsHolder = reinterpret_cast<DWORD>(weights);
         testRow[1] = reinterpret_cast<DWORD>(&weightsHolder);
         s_predicateResume = reinterpret_cast<DWORD>(PredicateResumeStub);
-        s_workbookFilterEnabled = true;
         const auto predicate = reinterpret_cast<bool (__fastcall*)(DWORD, DWORD, DWORD)>(
             HotaObstacleWeightPredicateHook);
         testRow[0] = 6;
         CHECK(predicate(reinterpret_cast<DWORD>(testRow), 0, 0));
         testRow[0] = 14;
+        s_extraBlockedRandTrnRows[14] = 1;
         CHECK(!predicate(reinterpret_cast<DWORD>(testRow), 0, 0));
-        s_workbookFilterEnabled = false;
+        s_extraBlockedRandTrnRows[14] = 0;
         testRow[0] = 6;
         s_variantTraceEnabled = true;
         s_generationFilterMode = static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection);
@@ -556,7 +556,6 @@ int main()
     // Default bypasses even explicitly configured diagnostic filters and cannot
     // start a custom generation pass or redirect the native object source.
     DWORD defaultRow = 14;
-    s_workbookFilterEnabled = true;
     s_extraBlockedRandTrnRows[14] = 1;
     CHECK(!ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&defaultRow)));
     SetCustomObstacleMode(false);
@@ -571,33 +570,15 @@ int main()
     s_extraBlockedRandTrnRows[14] = 0;
     SetCustomObstacleMode(true);
 
-    for (DWORD row = 0; row < 199; ++row)
-    {
-        CHECK(LegacyRandTrnRowIndex(*profile, row) == row);
-        CHECK(RandTrnTerrain(row) == kRandTrnTerrainByRow[row]);
-    }
-    CHECK(LegacyRandTrnRowIndex(*profile, 199) == MAXDWORD);
-    CHECK(LegacyRandTrnRowIndex(*profile, 200) == 199);
-    CHECK(LegacyRandTrnRowIndex(*profile, 201) == MAXDWORD);
-    CHECK(LegacyRandTrnRowIndex(*profile, MAXDWORD) == MAXDWORD);
-    CHECK(RandTrnTerrain(199) == 3);
-    CHECK(RandTrnTerrain(200) == 7);
-    CHECK(RandTrnTerrain(201) == kNoReferenceRow);
-
-    s_workbookFilterEnabled = true;
-    for (DWORD row = 0; row < 201; ++row)
-    {
-        const DWORD legacy = LegacyRandTrnRowIndex(*profile, row);
-        const bool expected = legacy == MAXDWORD || kAllowedRandTrnRows[legacy] != 0;
-        CHECK(ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&row)) == expected);
-    }
+    CHECK(profile->randTrnRowCount == 201);
+    for (DWORD row = 0; row < profile->randTrnRowCount; ++row)
+        CHECK(ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&row)));
     SetEnvironmentVariableA(kExtraBlockedObstacleIdsEnvVar, "200,201,202");
     InitializeExtraBlockedRows();
     CHECK(s_extraBlockedRowCount == 2);
     CHECK(s_extraBlockedRandTrnRows[199] && s_extraBlockedRandTrnRows[200]);
     DWORD row = 200;
     CHECK(!ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&row)));
-    s_workbookFilterEnabled = false;
     CHECK(!ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&row)));
     s_extraBlockedRandTrnRows[200] = 0;
     CHECK(ShouldAllowRandTrnRow(reinterpret_cast<DWORD>(&row)));
@@ -619,6 +600,6 @@ int main()
     TestPredicateThunk();
     TestMountainOrder();
     TestDuneFillPolicy();
-    std::puts("PASS: painted map layers, terrain geometry, 1.8.1 profiles, byte guards, row filters/indexing, and x86 hook thunks.");
+    std::puts("PASS: painted map layers, terrain geometry, 1.8.1 profiles, byte guards, row filters/bounds, and x86 hook thunks.");
     return 0;
 }

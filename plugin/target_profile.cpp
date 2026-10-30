@@ -34,7 +34,7 @@ namespace
         "365EB0C5C01ADBEAEC6A46E12D49BA2C710150270600ACE496496EB432DEA240",
         0x000CC230, 0x000DD4B0, 0x000DDB54, 0x000DDB61,
         { 0x8B, 0x4C, 0x24, 0x14, 0x8B, 0x54, 0x24, 0x1C },
-        201, 199,
+        201,
         0x000CC2E0, 0x0017BAC4,
         0x000CCC2F,
     };
@@ -173,13 +173,4 @@ const HotaModuleTargetProfile* FindLoadedHotaModuleTargetProfile(std::string& er
     if (!profile)
         error = "unsupported hota_me.dll hash";
     return profile;
-}
-
-DWORD LegacyRandTrnRowIndex(const HotaModuleTargetProfile& profile, DWORD rowId)
-{
-    if (rowId >= profile.randTrnRowCount || rowId == profile.glacierRandTrnRow)
-        return MAXDWORD;
-
-    // 1.8.1 inserts a glacier row before the former final lava-outcropping row.
-    return rowId > profile.glacierRandTrnRow ? rowId - 1 : rowId;
 }

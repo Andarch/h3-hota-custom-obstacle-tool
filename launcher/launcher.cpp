@@ -4,9 +4,9 @@
 
 #include "../plugin/plugin_api.h"
 
-#define APP_NAME    "HotaMapEdPlugin"
+#define APP_NAME    "HotACustomObstacleTool"
 #define EDITOR_EXE  "h3hota_maped.exe"
-#define PLUGIN_DLL  "HotaMapEdPlugin.dll"
+#define PLUGIN_DLL  "HotACustomObstacleTool.dll"
 #define INI_FILE    "HotaMapEdPlugin.ini"
 
 // Returns the directory containing this launcher exe (with trailing backslash).

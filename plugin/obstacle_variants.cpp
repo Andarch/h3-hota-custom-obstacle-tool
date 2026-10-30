@@ -4,7 +4,6 @@
 #include "logger.h"
 #include "hook.h"
 #include "obstacle_button_data.h"
-#include "obstacle_classification.h"
 #include "obstacle_def_images.h"
 #include "obstacle_filter.h"
 #include "obstacle_preview.h"
@@ -19,8 +18,6 @@ namespace
 {
     constexpr char kVariantUiEnvVar[] = "HOTA_MAPED_PLUGIN_OBSTACLE_VARIANTS";
     constexpr UINT kVanillaPlaceObstaclesCommand = 32927;
-    constexpr UINT kPlaceThickObstaclesCommand = 0x7001;
-    constexpr UINT kPlaceThinObstaclesCommand = 0x7002;
     constexpr int kCategoryButtonExtent = 40;
     constexpr int kSelectionButtonExtent = 18;
     constexpr int kSelectionRowHeight = 22;
@@ -106,6 +103,7 @@ namespace
     struct ModeHostState
     {
         HWND radios[2] = {};
+        HWND tooltip = nullptr;
     };
 
     VariantPanel s_panels[8] = {};
@@ -215,10 +213,7 @@ namespace
     void RefreshCategoryHeaders(HWND host);
     void InitializeScrollHostLayout(ScrollHostState& state);
     bool RectInParent(HWND parent, HWND child, RECT& rect);
-    void RunObstacleVariantCommand(
-        HWND parent,
-        HWND sourceToolbar,
-        ObstacleGenerationFilterMode mode);
+    void RunSelectedObstacleCommand(HWND parent, HWND sourceToolbar);
 
     void EnsureCategoryCheckedInitialized()
     {
@@ -1368,10 +1363,7 @@ namespace
                 InvalidateRect(hwnd, nullptr, FALSE);
                 if (shouldRun)
                 {
-                    RunObstacleVariantCommand(
-                        state->parent,
-                        state->sourceToolbar,
-                        ObstacleGenerationFilterMode::ButtonSelection);
+                    RunSelectedObstacleCommand(state->parent, state->sourceToolbar);
                     RefreshCategoryButtonsForToolbar(state->sourceToolbar);
                 }
             }
@@ -1671,6 +1663,7 @@ namespace
         }
         if (message == WM_NCDESTROY)
         {
+            if (state && state->tooltip) DestroyWindow(state->tooltip);
             SetWindowLongPtrA(hwnd, GWLP_USERDATA, 0);
             delete state;
         }
@@ -1694,12 +1687,19 @@ namespace
             WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, 22,
             parent, nullptr, s_pluginModule, state);
         if (!host) { delete state; return nullptr; }
-        bool created = true;
+        state->tooltip = CreateWindowExA(WS_EX_TOPMOST, TOOLTIPS_CLASSA, nullptr,
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+            host, nullptr, s_pluginModule, nullptr);
+        bool created = state->tooltip != nullptr;
+        if (created) SendMessageA(state->tooltip, TTM_SETMAXTIPWIDTH, 0, 260);
+        static char standardTip[] = "Use the editor's native obstacle placement.";
+        static char customTip[] = "Customize which obstacle types can be generated.";
         const int radioWidth = width / 2 < 88 ? width / 2 : 88;
-        for (int index = 0; index < 2; ++index)
+        for (int index = 0; created && index < 2; ++index)
         {
             // Keep the options together on wide panels and fit narrow panels.
-            state->radios[index] = CreateWindowExA(0, "BUTTON", index ? "Custom" : "Default",
+            state->radios[index] = CreateWindowExA(0, "BUTTON", index ? "Custom" : "Standard",
                 WS_CHILD | WS_VISIBLE | BS_RADIOBUTTON, index * radioWidth, 0,
                 radioWidth, 22, host, reinterpret_cast<HMENU>(static_cast<INT_PTR>(index + 1)),
                 s_pluginModule, nullptr);
@@ -1710,6 +1710,14 @@ namespace
                 reinterpret_cast<WPARAM>(font ? font : GetStockObject(DEFAULT_GUI_FONT)), TRUE);
             SendMessageA(radio, BM_SETCHECK,
                 CustomObstacleModeEnabled() == (index == 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+            TOOLINFOA tool = {};
+            tool.cbSize = sizeof(tool);
+            tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
+            tool.hwnd = host;
+            tool.uId = reinterpret_cast<UINT_PTR>(radio);
+            tool.lpszText = index ? customTip : standardTip;
+            created = SendMessageA(state->tooltip, TTM_ADDTOOLA, 0,
+                reinterpret_cast<LPARAM>(&tool)) != FALSE;
         }
         if (!created) { DestroyWindow(host); return nullptr; }
         return host;
@@ -1767,12 +1775,12 @@ namespace
                 }
                 const bool global = action >= kGlobalSelectionAction;
                 const int radius = global ? 6 : 3;
-                const int thickness = global ? 2 : 1;
-                RECT horizontal = { x - radius, y, x + radius + thickness, y + thickness };
+                const int strokeWidth = global ? 2 : 1;
+                RECT horizontal = { x - radius, y, x + radius + strokeWidth, y + strokeWidth };
                 FillRect(draw->hdc, &horizontal, ink);
                 if (action % 2 == 0)
                 {
-                    RECT vertical = { x, y - radius, x + thickness, y + radius + thickness };
+                    RECT vertical = { x, y - radius, x + strokeWidth, y + radius + strokeWidth };
                     FillRect(draw->hdc, &vertical, ink);
                 }
                 return CDRF_DODEFAULT;
@@ -2391,7 +2399,7 @@ namespace
         return nullptr;
     }
 
-    void RunObstacleVariantCommand(HWND parent, HWND sourceToolbar, ObstacleGenerationFilterMode mode)
+    void RunSelectedObstacleCommand(HWND parent, HWND sourceToolbar)
     {
         if (!CustomObstacleModeEnabled())
         {
@@ -2400,32 +2408,13 @@ namespace
                 reinterpret_cast<LPARAM>(sourceToolbar));
             return;
         }
-        if ((mode == ObstacleGenerationFilterMode::ThickOnly ||
-                mode == ObstacleGenerationFilterMode::ThinOnly) &&
-            !ObstacleThicknessTableAvailable())
-        {
-            MessageBoxA(
-                parent,
-                "Obstacle thickness data has not been generated yet.\n\n"
-                "Classify obstacles.xlsx, then regenerate the plugin's "
-                "DEF/template thickness table.",
-                "HotaMapEdPlugin",
-                MB_ICONINFORMATION);
-            return;
-        }
-
-        if (mode == ObstacleGenerationFilterMode::ButtonSelection &&
-            !ObstacleButtonDataAvailable())
+        if (!ObstacleButtonDataAvailable())
         {
             LogMessage("Obstacle variants: button metadata is unavailable; placement was not started.");
             return;
         }
 
-        const char* modeName =
-            mode == ObstacleGenerationFilterMode::ThickOnly ? "thick" :
-            mode == ObstacleGenerationFilterMode::ThinOnly ? "thin" :
-            "selected-button";
-        LogFormat("Obstacle variants: running %s obstacle generation.", modeName);
+        LogMessage("Obstacle variants: running selected-button obstacle generation.");
 
         DWORD lowMask = 0;
         DWORD highMask = 0;
@@ -2433,7 +2422,7 @@ namespace
         DWORD upperMask = 0;
         GetSelectedButtonMasks(lowMask, highMask, extendedMask, upperMask);
         SetObstacleButtonSelection(lowMask, highMask, extendedMask, upperMask);
-        SetObstacleGenerationFilterMode(mode);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
         SendMessageA(
             parent,
             WM_COMMAND,
@@ -2441,39 +2430,7 @@ namespace
             reinterpret_cast<LPARAM>(sourceToolbar));
         SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
 
-        LogFormat("Obstacle variants: finished %s obstacle generation.", modeName);
-    }
-
-    bool HitTestVariantToolbarButton(
-        HWND toolbar,
-        LPARAM lParam,
-        ObstacleGenerationFilterMode& mode)
-    {
-        POINT point =
-        {
-            static_cast<SHORT>(LOWORD(lParam)),
-            static_cast<SHORT>(HIWORD(lParam)),
-        };
-        const LRESULT hit = SendMessageA(toolbar, TB_HITTEST, 0, reinterpret_cast<LPARAM>(&point));
-        if (hit < 0)
-            return false;
-
-        TBBUTTON button = {};
-        if (!SendMessageA(toolbar, TB_GETBUTTON, static_cast<WPARAM>(hit), reinterpret_cast<LPARAM>(&button)))
-            return false;
-
-        if (button.idCommand == static_cast<int>(kPlaceThickObstaclesCommand))
-        {
-            mode = ObstacleGenerationFilterMode::ThickOnly;
-            return true;
-        }
-        if (button.idCommand == static_cast<int>(kPlaceThinObstaclesCommand))
-        {
-            mode = ObstacleGenerationFilterMode::ThinOnly;
-            return true;
-        }
-
-        return false;
+        LogMessage("Obstacle variants: finished selected-button obstacle generation.");
     }
 
     LRESULT CALLBACK VariantGetMessageHook(int code, WPARAM wParam, LPARAM lParam)
@@ -2555,10 +2512,7 @@ namespace
                     }
                     else
                     {
-                        RunObstacleVariantCommand(
-                            context.parent,
-                            context.sourceToolbar,
-                            ObstacleGenerationFilterMode::ButtonSelection);
+                        RunSelectedObstacleCommand(context.parent, context.sourceToolbar);
                     }
                     PostCategoryRefreshMessages();
                 }
@@ -2566,33 +2520,6 @@ namespace
             else if (message &&
                 (message->message == WM_LBUTTONDOWN || message->message == WM_LBUTTONUP))
             {
-                const UINT originalMessage = message->message;
-                VariantPanel context;
-                bool haveContext = false;
-
-                EnterCriticalSection(&s_panelLock);
-                VariantPanel* panel = FindPanelLocked(message->hwnd);
-                if (panel)
-                {
-                    context = *panel;
-                    haveContext = true;
-                }
-                LeaveCriticalSection(&s_panelLock);
-
-                if (haveContext && IsWindow(context.sourceToolbar))
-                {
-                    ObstacleGenerationFilterMode mode = ObstacleGenerationFilterMode::None;
-                    if (CustomObstacleModeEnabled() &&
-                        HitTestVariantToolbarButton(context.sourceToolbar, message->lParam, mode))
-                    {
-                        message->message = WM_NULL;
-                        message->wParam = 0;
-                        message->lParam = 0;
-                        if (originalMessage == WM_LBUTTONUP)
-                            RunObstacleVariantCommand(context.parent, context.sourceToolbar, mode);
-                    }
-                }
-
                 PostCategoryRefreshMessages();
             }
             else if (MessageCanAffectObstacleSelection(message))
@@ -2923,10 +2850,9 @@ namespace
         }
 
         LogFormat(
-            "Obstacle variants: registered toolbar buttons parent=%p toolbar=%p thicknessTable=%s",
+            "Obstacle variants: registered toolbar buttons parent=%p toolbar=%p",
             parent,
-            toolbar,
-            ObstacleThicknessTableAvailable() ? "available" : "missing");
+            toolbar);
         return true;
     }
 
@@ -2960,7 +2886,6 @@ namespace
 bool ObstacleVariantsEnabled()
 {
     return ObstacleButtonDataAvailable() ||
-        ObstacleThicknessTableAvailable() ||
         VariantUiEnvEnabled();
 }
 

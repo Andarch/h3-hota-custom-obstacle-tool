@@ -4,7 +4,6 @@
 #include "hook.h"
 #include "logger.h"
 #include "obstacle_button_data.h"
-#include "obstacle_classification.h"
 #include "target_profile.h"
 
 #include <cstdlib>
@@ -15,7 +14,6 @@
 
 namespace
 {
-    constexpr char kFilterEnvVar[] = "HOTA_MAPED_PLUGIN_OBSTACLE_FILTER";
     constexpr char kExtraBlockedObstacleIdsEnvVar[] =
         "HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS";
     constexpr char kVariantTraceEnvVar[] =
@@ -32,7 +30,6 @@ namespace
     constexpr DWORD kFinalCandidateRejectTarget = 0x0049E69E;
     constexpr DWORD kTerrainCount = 12;
     constexpr DWORD kNativeTextLoader = 0x004DCCE0;
-    constexpr BYTE kNoReferenceRow = 0xFF;
 
     const BYTE kPredicateExpected[] =
     {
@@ -66,66 +63,6 @@ namespace
         0x8D, 0x4D, 0xCC,       // lea ecx, [ebp-34h]
     };
 
-    const BYTE kAllowedRandTrnRows[] =
-    {
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
-        1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1,
-        1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
-    };
-    constexpr DWORD kLegacyRandTrnRowCount =
-        sizeof(kAllowedRandTrnRows) / sizeof(kAllowedRandTrnRows[0]);
-
-    const BYTE kRandTrnTerrainByRow[kLegacyRandTrnRowCount] =
-    {
-          0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   1,
-          1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   1,   2,   2,   2,   2,   2,   2,   2,   2,
-          2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   2,   3,   3,   3,   3,   3,   3,
-          3,   3,   3,   3,   3,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,
-          4,   4,   4,   4,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
-          6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   7,   7,   7,   7,   7,
-          7,   7,   7,   7,   7,   7,   8,   8,   4,   4,   1,   1,   1,   1,   1,   1,   1,   4,   4,   0,
-          0,   0,   2,   1,   4,   7,   7,   1,   3,   3,   0,   0,   2,   2,   3,   3,   4,   4,   5,   5,
-          6,   6,   3,   1,   1,   1,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,
-         10,  10,  10,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,   7,
-    };
-
-    const BYTE kThinScoringReferenceRowByTerrain[kTerrainCount] =
-    {
-        kNoReferenceRow,    // dirt
-        kNoReferenceRow,    // sand
-        32,                 // grass oak tree
-        61,                 // snow pine tree
-        kNoReferenceRow,    // swamp
-        kNoReferenceRow,    // rough
-        kNoReferenceRow,    // cave
-        119,                // lava mountain
-        kNoReferenceRow,    // water
-        kNoReferenceRow,    // reserved terrain 9
-        kNoReferenceRow,    // highlands
-        194,                // wasteland stone, used by the arch overlay
-    };
-
-    const char* const kExtraThickObjectRows[] =
-    {
-        "AVLGLC01.def 000111110000011110000111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 000000001000 140 14 0 0",
-        "AVLGLC02.def 110001110000011100001111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 000000001000 140 14 0 0",
-        "AVLGLC03.def 001111110001111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 000000001000 140 14 0 0",
-        "AVLGLC04.def 100111110001111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 000000001000 140 14 0 0",
-        "AVLGLC05.def 001111111001111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 000000001000 140 14 0 0",
-        "AVLGLC06.def 100111110011111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 000000001000 140 14 0 0",
-    };
-
-    const char* const kExtraThinObjectRows[] =
-    {
-        "AVLbon01.def 001111111111111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 100000100010 139 22 0 0",
-        "AVLMTWL7.def 010111111111111111111111111111111111111111111111 000000000000000000000000000000000000000000000000 110111111111 100000000000 140 13 0 0",
-    };
-
     BYTE s_predicateOriginal[5] = {};
     BYTE s_objectsTxtLoaderOriginal[5] = {};
     BYTE s_hotaParserStoreOriginal[5] = {};
@@ -141,11 +78,7 @@ namespace
     DWORD s_objectRecordAssignReturnResume = 0;
     DWORD s_finalCandidateRecordResume = 0;
     DWORD s_finalCandidateReject = kFinalCandidateRejectTarget;
-    DWORD s_snowMountainRowRecord = 0;
-    DWORD s_wastelandStoneRowRecord = 0;
-    DWORD s_thinScoringReferenceRows[kTerrainCount] = {};
     DWORD s_extraBlockedRowCount = 0;
-    bool s_workbookFilterEnabled = false;
     bool s_variantTraceEnabled = false;
     bool s_objectsOverlayReady = false;
     bool s_objectsOverlayAttempted = false;
@@ -154,9 +87,6 @@ namespace
     volatile LONG s_rejectedRows = 0;
     volatile LONG s_observedCandidates = 0;
     volatile LONG s_rejectedCandidates = 0;
-    volatile LONG s_glacierFallbackAssignments = 0;
-    volatile LONG s_archFallbackAssignments = 0;
-    volatile LONG s_thinScoringRowOverrides = 0;
     volatile LONG s_generationFilterMode = 0;
     volatile LONG s_customObstacleMode = 0;
     volatile LONG s_allObstacleTerrains = 0;
@@ -202,15 +132,6 @@ namespace
     DWORD s_terrainPredicateCounts[kMaxRandTrnRowCount][kTerrainCount][2] = {};
     std::map<unsigned long long, bool> s_terrainPredicateSamples;
 
-    BYTE RandTrnTerrain(DWORD rowId)
-    {
-        if (rowId == s_hotaProfile->glacierRandTrnRow)
-            return 3; // Native snow glacier row added in 1.8.1.
-        const DWORD legacyRow = LegacyRandTrnRowIndex(*s_hotaProfile, rowId);
-        return legacyRow < kLegacyRandTrnRowCount
-            ? kRandTrnTerrainByRow[legacyRow] : kNoReferenceRow;
-    }
-
     bool TryReadCandidateRecordRowId(DWORD record, DWORD& rowId);
     void ClearVariantTraceRows();
     void DumpVariantTraceRows(ObstacleGenerationFilterMode mode);
@@ -221,13 +142,6 @@ namespace
             _stricmp(value, "true") == 0 ||
             _stricmp(value, "yes") == 0 ||
             _stricmp(value, "on") == 0;
-    }
-
-    bool WorkbookFilterEnvEnabled()
-    {
-        char value[16] = {};
-        const DWORD length = GetEnvironmentVariableA(kFilterEnvVar, value, sizeof(value));
-        return length > 0 && length < sizeof(value) && EnvValueEnabled(value);
     }
 
     bool ExtraBlockListEnvPresent()
@@ -315,10 +229,6 @@ namespace
 
     const char* FilterModeName(ObstacleGenerationFilterMode mode)
     {
-        if (mode == ObstacleGenerationFilterMode::ThickOnly)
-            return "thick-only";
-        if (mode == ObstacleGenerationFilterMode::ThinOnly)
-            return "thin-only";
         if (mode == ObstacleGenerationFilterMode::ButtonSelection)
             return "button-selection";
         return "none";
@@ -494,28 +404,6 @@ namespace
         return true;
     }
 
-    const char* const* ExtraObjectRowsForMode(
-        ObstacleGenerationFilterMode mode,
-        DWORD& rowCount)
-    {
-        if (mode == ObstacleGenerationFilterMode::ThickOnly)
-        {
-            rowCount = static_cast<DWORD>(
-                sizeof(kExtraThickObjectRows) / sizeof(kExtraThickObjectRows[0]));
-            return kExtraThickObjectRows;
-        }
-
-        if (mode == ObstacleGenerationFilterMode::ThinOnly)
-        {
-            rowCount = static_cast<DWORD>(
-                sizeof(kExtraThinObjectRows) / sizeof(kExtraThinObjectRows[0]));
-            return kExtraThinObjectRows;
-        }
-
-        rowCount = 0;
-        return nullptr;
-    }
-
     const ObstacleTemplateOverride* SelectedTemplateOverrideForLine(
         const std::string& line,
         DWORD& overrideIndex)
@@ -624,6 +512,7 @@ namespace
 
     bool EnsureObjectsOverlayFile(ObstacleGenerationFilterMode mode)
     {
+        if (mode != ObstacleGenerationFilterMode::ButtonSelection) return false;
         if (s_objectsOverlayReady)
             return true;
         if (s_objectsOverlayAttempted)
@@ -673,41 +562,11 @@ namespace
         DWORD extraRows = 0;
         DWORD replacedRows = 0;
         DWORD resultingRowCount = rowCount;
-        if (mode == ObstacleGenerationFilterMode::ButtonSelection)
+        if (!BuildButtonSelectionOverlay(source, firstLineEnd, rowCount, overlay,
+                resultingRowCount, replacedRows, extraRows))
         {
-            if (!BuildButtonSelectionOverlay(
-                    source,
-                    firstLineEnd,
-                    rowCount,
-                    overlay,
-                    resultingRowCount,
-                    replacedRows,
-                    extraRows))
-            {
-                LogMessage("Obstacle variants: could not build button-selection object overlay.");
-                return false;
-            }
-        }
-        else
-        {
-            const char* const* rows = ExtraObjectRowsForMode(mode, extraRows);
-            if (!rows || extraRows == 0)
-                return false;
-
-            char newCount[32] = {};
-            sprintf_s(newCount, "%lu", rowCount + extraRows);
-            resultingRowCount = rowCount + extraRows;
-            overlay.reserve(source.size() + 1024);
-            overlay.assign(source.data(), source.data() + firstLineEnd);
-            overlay.replace(0, overlay.size(), newCount);
-            overlay.append(source.data() + firstLineEnd, source.data() + source.size());
-            if (!overlay.empty() && overlay[overlay.size() - 1] != '\n')
-                overlay += "\r\n";
-            for (DWORD index = 0; index < extraRows; ++index)
-            {
-                overlay += rows[index];
-                overlay += "\r\n";
-            }
+            LogMessage("Obstacle variants: could not build button-selection object overlay.");
+            return false;
         }
 
         if (!WriteWholeFile(s_objectsOverlayPath, overlay))
@@ -768,11 +627,7 @@ namespace
             return EnsureObjectsOverlayFile(mode) ? s_objectsOverlayResourceName : source;
         }
 
-        DWORD extraRows = 0;
-        if (!ExtraObjectRowsForMode(mode, extraRows) || extraRows == 0)
-            return source;
-
-        return EnsureObjectsOverlayFile(mode) ? s_objectsOverlayResourceName : source;
+        return source;
     }
 
     bool IsListSeparator(char value)
@@ -849,14 +704,9 @@ namespace
         if (rowId >= s_hotaProfile->randTrnRowCount)
             return true;
 
-        const DWORD legacyRow = LegacyRandTrnRowIndex(*s_hotaProfile, rowId);
-        // Rows absent from the legacy workbook filter retain native eligibility.
-        const bool workbookAllowed =
-            !s_workbookFilterEnabled || legacyRow >= kLegacyRandTrnRowCount ||
-            kAllowedRandTrnRows[legacyRow] != 0;
         const bool extraBlocked = s_extraBlockedRandTrnRows[rowId] != 0;
 
-        if (!workbookAllowed || extraBlocked)
+        if (extraBlocked)
         {
             const LONG hit = InterlockedIncrement(&s_rejectedRows);
             if (hit <= 32)
@@ -864,8 +714,7 @@ namespace
                 LogFormat("Obstacle filter: rejected rand_trn rowId=%lu obstacleId=%lu reason=%s",
                     rowId,
                     rowId + 1,
-                    extraBlocked ? "extra-block-list" :
-                        "workbook-filter");
+                    "extra-block-list");
             }
             else if (hit == 33)
             {
@@ -873,20 +722,7 @@ namespace
             }
         }
 
-        return workbookAllowed && !extraBlocked;
-    }
-
-    bool ObstacleThicknessAllowedInMode(
-        ObstacleThickness thickness,
-        ObstacleGenerationFilterMode mode)
-    {
-        if (thickness == ObstacleThickness::Both)
-            return true;
-        if (mode == ObstacleGenerationFilterMode::ThickOnly)
-            return thickness == ObstacleThickness::Thick;
-        if (mode == ObstacleGenerationFilterMode::ThinOnly)
-            return thickness == ObstacleThickness::Thin;
-        return true;
+        return !extraBlocked;
     }
 
     struct SelectedObjectRules
@@ -1038,16 +874,12 @@ namespace
             return false;
         }
 
-        const ObstacleThickness thickness =
-            GetObstacleThicknessForObjectTemplate(objectTemplate);
         const int buttonIndex = ObstacleButtonIndexForObjectTemplate(objectTemplate);
         const bool allowed = s_duneFillActive
             ? IsDuneFillerTemplate(objectTemplate)
-            : mode == ObstacleGenerationFilterMode::ButtonSelection
-            ? !(SandDunesSelected() && IsDuneFillerTemplate(objectTemplate)) &&
+            : !(SandDunesSelected() && IsDuneFillerTemplate(objectTemplate)) &&
                 IsObstacleButtonSelected(buttonIndex) &&
-                ApplySelectedObjectRules(record, objectTemplate, buttonIndex)
-            : ObstacleThicknessAllowedInMode(thickness, mode);
+                ApplySelectedObjectRules(record, objectTemplate, buttonIndex);
 
         DWORD rowId = 0;
         const bool haveRowId = TryReadCandidateRecordRowId(record, rowId);
@@ -1084,14 +916,13 @@ namespace
         if (s_variantTraceEnabled && seen <= 16)
         {
             LogFormat(
-                "Obstacle variants: observed final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu button=%d thickness=%s mode=%s",
+                "Obstacle variants: observed final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu button=%d mode=%s",
                 reinterpret_cast<void*>(record),
                 reinterpret_cast<void*>(objectTemplate),
                 defKey,
                 objectId,
                 subtype,
                 buttonIndex,
-                ObstacleThicknessName(thickness),
                 FilterModeName(mode));
         }
 
@@ -1101,14 +932,13 @@ namespace
             if (s_variantTraceEnabled && hit <= 32)
             {
                 LogFormat(
-                    "Obstacle variants: rejected final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu button=%d thickness=%s reason=%s",
+                    "Obstacle variants: rejected final candidate record=%p template=%p defKey=%lu objectId=%lu subtype=%lu button=%d reason=%s",
                     reinterpret_cast<void*>(record),
                     reinterpret_cast<void*>(objectTemplate),
                     defKey,
                     objectId,
                     subtype,
                     buttonIndex,
-                    ObstacleThicknessName(thickness),
                     FilterModeName(mode));
             }
             else if (s_variantTraceEnabled && hit == 33)
@@ -1116,106 +946,7 @@ namespace
                 LogMessage("Obstacle variants: further candidate rejection logs suppressed.");
             }
         }
-        else if (mode == ObstacleGenerationFilterMode::ThinOnly &&
-            thickness == ObstacleThickness::Thin &&
-            haveRowId &&
-            rowId < s_hotaProfile->randTrnRowCount)
-        {
-            const BYTE terrain = RandTrnTerrain(rowId);
-            if (terrain < kTerrainCount)
-            {
-                const DWORD referenceRow = s_thinScoringReferenceRows[terrain];
-                DWORD currentRow = 0;
-                if (referenceRow != 0 &&
-                    SafeReadDword(record + 0x10, currentRow) &&
-                    currentRow != referenceRow &&
-                    SafeWriteDword(record + 0x10, referenceRow))
-                {
-                    const LONG hit = InterlockedIncrement(&s_thinScoringRowOverrides);
-                    if (s_variantTraceEnabled && hit <= 32)
-                    {
-                        DWORD referenceRowId = 0;
-                        SafeReadDword(referenceRow, referenceRowId);
-                        LogFormat(
-                            "Obstacle variants: thin scoring row override record=%p terrain=%lu rowId=%lu referenceRowId=%lu",
-                            reinterpret_cast<void*>(record),
-                            static_cast<DWORD>(terrain),
-                            rowId,
-                            referenceRowId);
-                    }
-                    else if (s_variantTraceEnabled && hit == 33)
-                    {
-                        LogMessage("Obstacle variants: further thin scoring row override logs suppressed.");
-                    }
-                }
-            }
-        }
-
         return allowed;
-    }
-
-    bool IsSnowMountainWrapper(DWORD wrapper)
-    {
-        DWORD objectTemplate = 0;
-        DWORD firstTerrain = 0;
-        DWORD objectId = 0;
-        DWORD subtype = 0;
-        return SafeReadDword(wrapper, objectTemplate) &&
-            SafeReadDword(wrapper + 4, firstTerrain) &&
-            firstTerrain == 3 &&
-            objectTemplate != 0 &&
-            SafeReadDword(objectTemplate + 0x1C, objectId) &&
-            SafeReadDword(objectTemplate + 0x20, subtype) &&
-            objectId == 134 &&
-            subtype == 0;
-    }
-
-    bool IsGlacierWrapper(DWORD wrapper)
-    {
-        DWORD objectTemplate = 0;
-        DWORD firstTerrain = 0;
-        DWORD objectId = 0;
-        DWORD subtype = 0;
-        return SafeReadDword(wrapper, objectTemplate) &&
-            SafeReadDword(wrapper + 4, firstTerrain) &&
-            firstTerrain == 3 &&
-            objectTemplate != 0 &&
-            SafeReadDword(objectTemplate + 0x1C, objectId) &&
-            SafeReadDword(objectTemplate + 0x20, subtype) &&
-            objectId == 140 &&
-            subtype == 14;
-    }
-
-    bool IsWastelandStoneWrapper(DWORD wrapper)
-    {
-        DWORD objectTemplate = 0;
-        DWORD firstTerrain = 0;
-        DWORD objectId = 0;
-        DWORD subtype = 0;
-        return SafeReadDword(wrapper, objectTemplate) &&
-            SafeReadDword(wrapper + 4, firstTerrain) &&
-            firstTerrain == 11 &&
-            objectTemplate != 0 &&
-            SafeReadDword(objectTemplate + 0x1C, objectId) &&
-            SafeReadDword(objectTemplate + 0x20, subtype) &&
-            objectId == 140 &&
-            subtype == 1;
-    }
-
-    bool IsWastelandArchWrapper(DWORD wrapper)
-    {
-        DWORD objectTemplate = 0;
-        DWORD firstTerrain = 0;
-        DWORD objectId = 0;
-        DWORD subtype = 0;
-        return SafeReadDword(wrapper, objectTemplate) &&
-            SafeReadDword(wrapper + 4, firstTerrain) &&
-            firstTerrain == 11 &&
-            objectTemplate != 0 &&
-            SafeReadDword(objectTemplate + 0x1C, objectId) &&
-            SafeReadDword(objectTemplate + 0x20, subtype) &&
-            objectId == 140 &&
-            subtype == 13;
     }
 
     void __stdcall ObserveHotaParserWrapperRow(DWORD wrapper, DWORD rowRecord)
@@ -1236,54 +967,6 @@ namespace
                 ObserveObstacleBorrowSourceRow(objectTemplate, rowRecord);
         }
 
-        if (mode == ObstacleGenerationFilterMode::ThickOnly &&
-            IsSnowMountainWrapper(wrapper) &&
-            s_snowMountainRowRecord == 0)
-        {
-            s_snowMountainRowRecord = rowRecord;
-            DWORD rowId = 0;
-            SafeReadDword(rowRecord, rowId);
-            LogFormat(
-                "Obstacle variants: captured snow mountain rand_trn row for glacier overlay rowRecord=%p rowId=%lu",
-                reinterpret_cast<void*>(rowRecord),
-                rowId);
-        }
-
-        if (mode == ObstacleGenerationFilterMode::ThinOnly &&
-            IsWastelandStoneWrapper(wrapper) &&
-            s_wastelandStoneRowRecord == 0)
-        {
-            s_wastelandStoneRowRecord = rowRecord;
-            DWORD rowId = 0;
-            SafeReadDword(rowRecord, rowId);
-            LogFormat(
-                "Obstacle variants: captured wasteland stone rand_trn row for arch overlay rowRecord=%p rowId=%lu",
-                reinterpret_cast<void*>(rowRecord),
-                rowId);
-        }
-
-        if (mode == ObstacleGenerationFilterMode::ThinOnly)
-        {
-            DWORD rowId = 0;
-            if (SafeReadDword(rowRecord, rowId) && rowId < s_hotaProfile->randTrnRowCount)
-            {
-                const DWORD legacyRow = LegacyRandTrnRowIndex(*s_hotaProfile, rowId);
-                for (DWORD terrain = 0; terrain < kTerrainCount; ++terrain)
-                {
-                    if (kThinScoringReferenceRowByTerrain[terrain] == legacyRow &&
-                        s_thinScoringReferenceRows[terrain] == 0)
-                    {
-                        s_thinScoringReferenceRows[terrain] = rowRecord;
-                        LogFormat(
-                            "Obstacle variants: captured thin scoring reference terrain=%lu rowRecord=%p rowId=%lu",
-                            terrain,
-                            reinterpret_cast<void*>(rowRecord),
-                            rowId);
-                        break;
-                    }
-                }
-            }
-        }
     }
 
     bool ExpandSelectedTemplateTerrains(DWORD objectTemplate)
@@ -1333,67 +1016,6 @@ namespace
             return;
         }
 
-        DWORD sourceRowRecord = 0;
-        bool isTarget = false;
-        const char* targetName = "";
-        const char* sourceName = "";
-        volatile LONG* assignmentCounter = nullptr;
-
-        if (mode == ObstacleGenerationFilterMode::ThickOnly &&
-            s_snowMountainRowRecord != 0 &&
-            IsGlacierWrapper(wrapper))
-        {
-            sourceRowRecord = s_snowMountainRowRecord;
-            isTarget = true;
-            targetName = "glacier";
-            sourceName = "snow mountain";
-            assignmentCounter = &s_glacierFallbackAssignments;
-        }
-        else if (mode == ObstacleGenerationFilterMode::ThinOnly &&
-            s_wastelandStoneRowRecord != 0 &&
-            IsWastelandArchWrapper(wrapper))
-        {
-            sourceRowRecord = s_wastelandStoneRowRecord;
-            isTarget = true;
-            targetName = "wasteland arch";
-            sourceName = "wasteland stone";
-            assignmentCounter = &s_archFallbackAssignments;
-        }
-
-        if (!isTarget || sourceRowRecord == 0 || !assignmentCounter)
-            return;
-
-        DWORD existingRow = 0;
-        if (SafeReadDword(wrapper + 0x10, existingRow) && existingRow != 0)
-            return;
-
-        if (!SafeWriteDword(wrapper + 0x10, sourceRowRecord))
-            return;
-
-        const LONG hit = InterlockedIncrement(assignmentCounter);
-        if (hit <= 8)
-        {
-            DWORD objectTemplate = 0;
-            DWORD defKey = 0;
-            DWORD rowId = 0;
-            SafeReadDword(wrapper, objectTemplate);
-            if (objectTemplate)
-                SafeReadDword(objectTemplate, defKey);
-            SafeReadDword(sourceRowRecord, rowId);
-            LogFormat(
-                "Obstacle variants: assigned %s wrapper=%p template=%p defKey=%lu to %s rand_trn rowId=%lu",
-                targetName,
-                reinterpret_cast<void*>(wrapper),
-                reinterpret_cast<void*>(objectTemplate),
-                defKey,
-                sourceName,
-                rowId);
-        }
-        else if (hit == 9)
-        {
-            LogFormat("Obstacle variants: further %s rand_trn fallback logs suppressed.",
-                targetName);
-        }
     }
 
     __declspec(naked) bool __fastcall NativeTerrainPredicate(DWORD, DWORD, DWORD)
@@ -1808,12 +1430,6 @@ namespace
             lea     edx, [ebp-64h]
             push    edx
             push    ecx
-            call    RegisterObstacleTemplateDefName
-
-            mov     ecx, [esp+1Ch]
-            lea     edx, [ebp-64h]
-            push    edx
-            push    ecx
             call    RegisterObstacleButtonDefName
             popad
 
@@ -1827,7 +1443,7 @@ namespace
 
 bool ObstacleFilterEnabled()
 {
-    return WorkbookFilterEnvEnabled() || ExtraBlockListEnvPresent();
+    return ExtraBlockListEnvPresent();
 }
 
 bool InstallDuneFillHook(const TargetProfile& profile, std::string& error)
@@ -1860,7 +1476,7 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
 {
     const bool rowFilterEnabled = ObstacleFilterEnabled();
     const bool candidateFilterEnabled =
-        ObstacleThicknessTableAvailable() || ObstacleButtonDataAvailable();
+        ObstacleButtonDataAvailable();
     if (!rowFilterEnabled && !candidateFilterEnabled)
     {
         LogMessage("Obstacle filter: no row or candidate hooks requested.");
@@ -1878,7 +1494,6 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
     s_variantTraceEnabled = VariantTraceEnvEnabled();
     if (rowFilterEnabled || candidateFilterEnabled || s_variantTraceEnabled)
     {
-        s_workbookFilterEnabled = WorkbookFilterEnvEnabled();
         InitializeExtraBlockedRows();
 
         BYTE* const moduleBase = reinterpret_cast<BYTE*>(hotaMe);
@@ -1902,9 +1517,8 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
             return false;
         }
 
-        LogFormat("Obstacle filter installed: predicate=%p workbookFilter=%s nativeRows=%lu legacyAllowedRows=159 legacyRejectedRows=41 extraBlockedRows=%lu",
+        LogFormat("Obstacle filter installed: predicate=%p nativeRows=%lu extraBlockedRows=%lu",
             predicate,
-            s_workbookFilterEnabled ? "on" : "off",
             profile.randTrnRowCount,
             s_extraBlockedRowCount);
     }
@@ -1924,7 +1538,7 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
             error = std::string("HotA terrain accumulator: ") + HookResultName(accumulatorResult);
             return false;
         }
-        LogFormat("Obstacle terrain accumulator experiment installed at %p", accumulator);
+        LogFormat("Obstacle terrain accumulator installed at %p", accumulator);
         const BYTE orderExpected[] = { 0x0F, 0x85, 0x10, 0x01, 0x00, 0x00 };
         BYTE* orderCheck = reinterpret_cast<BYTE*>(hotaMe) + profile.mountainOrderCheckRva;
         s_mountainOrderContinue = reinterpret_cast<DWORD>(orderCheck) + 6;
@@ -1934,7 +1548,7 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
             reinterpret_cast<void*>(MountainOrderHook), s_mountainOrderOriginal);
         if (orderResult != HookResult::Success)
         {
-            error = std::string("HotA mountain order experiment: ") + HookResultName(orderResult);
+            error = std::string("HotA mountain order adjustment: ") + HookResultName(orderResult);
             return false;
         }
         s_variantTraceEnabled = VariantTraceEnvEnabled();
@@ -2076,13 +1690,12 @@ bool InstallObstacleFilterHooks(const HotaModuleTargetProfile& profile, std::str
             LogMessage("Obstacle variants trace: score-path hooks disabled; using final-candidate trace only.");
 
         LogFormat(
-            "Obstacle variants installed: objectsOverlayRedirect=%p hotaRowCapture=%p hotaFallback=%p objectDefRegistration=%p finalCandidateRecord=%p thicknessTable=%s buttonData=%s trace=%s",
+            "Obstacle variants installed: objectsOverlayRedirect=%p hotaRowCapture=%p hotaFallback=%p objectDefRegistration=%p finalCandidateRecord=%p buttonData=%s trace=%s",
             objectsTxtLoader,
             hotaParserStore,
             hotaParserWrapperFallback,
             objectRecordAssignReturn,
             predicate,
-            ObstacleThicknessTableAvailable() ? "available" : "missing",
             ObstacleButtonDataAvailable() ? "available" : "missing",
             s_variantTraceEnabled ? "on" : "off");
     }
@@ -2100,9 +1713,9 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         previousMode != ObstacleGenerationFilterMode::None)
     {
         if (s_edgeRelaxations)
-            LogFormat("Obstacle edge experiment: relaxed %lu predicate checks; accumulated %lu actual-terrain cells; native collision checks retained.", s_edgeRelaxations, s_accumulatorRelaxations);
+            LogFormat("Obstacle terrain transitions: relaxed %lu predicate checks; accumulated %lu actual-terrain cells; native collision checks retained.", s_edgeRelaxations, s_accumulatorRelaxations);
         DumpVariantTraceRows(previousMode);
-        LogFormat("Mountain order experiment: %lu permitted mountain-pair conflicts; other native scoring retained.", s_mountainOrderExceptions);
+        LogFormat("Mountain order adjustment: %lu permitted mountain-pair conflicts; other native scoring retained.", s_mountainOrderExceptions);
         CleanupObjectsOverlayFile();
         s_traceCandidateRow = 0;
         s_candidateTerrainMask = 0;
@@ -2113,13 +1726,7 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
     {
         InterlockedExchange(&s_observedCandidates, 0);
         InterlockedExchange(&s_rejectedCandidates, 0);
-        InterlockedExchange(&s_glacierFallbackAssignments, 0);
-        InterlockedExchange(&s_archFallbackAssignments, 0);
         InterlockedExchange(&s_buttonBorrowAssignments, 0);
-        InterlockedExchange(&s_thinScoringRowOverrides, 0);
-        s_snowMountainRowRecord = 0;
-        s_wastelandStoneRowRecord = 0;
-        ZeroMemory(s_thinScoringReferenceRows, sizeof(s_thinScoringReferenceRows));
         ResetObstacleBorrowedRows();
         s_selectedObjectRules.clear();
         s_defaultSelectedRow = 0;

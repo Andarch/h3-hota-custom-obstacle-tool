@@ -389,6 +389,25 @@ void TestObstacleModeControls()
     CHECK_SELECTION(!visibleStyle(panel.placeOverlay) && visibleStyle(panel.sourceToolbar));
     CHECK_SELECTION(!ShouldBlockNativePlaceObstaclesCommand());
     auto* mode = reinterpret_cast<ModeHostState*>(GetWindowLongPtrA(panel.modeHost, GWLP_USERDATA));
+    auto checkModeTooltips = [&]() {
+        CHECK_SELECTION(IsWindow(mode->tooltip));
+        CHECK_SELECTION(SendMessageA(mode->tooltip, TTM_GETTOOLCOUNT, 0, 0) == 2);
+        for (int index = 0; index < 2; ++index)
+        {
+            char caption[32] = {}, tip[128] = {};
+            GetWindowTextA(mode->radios[index], caption, sizeof(caption));
+            CHECK_SELECTION(strcmp(caption, index ? "Custom" : "Standard") == 0);
+            TOOLINFOA tool = {};
+            tool.cbSize = sizeof(tool);
+            tool.hwnd = panel.modeHost;
+            tool.uId = reinterpret_cast<UINT_PTR>(mode->radios[index]);
+            tool.lpszText = tip;
+            SendMessageA(mode->tooltip, TTM_GETTEXTA, sizeof(tip), reinterpret_cast<LPARAM>(&tool));
+            CHECK_SELECTION(strcmp(tip, index ? "Customize which obstacle types can be generated." :
+                "Use the editor's native obstacle placement.") == 0);
+        }
+    };
+    checkModeTooltips();
     CHECK_SELECTION(SendMessageA(mode->radios[0], BM_GETCHECK, 0, 0) == BST_CHECKED);
     bool checked[kObstacleButtonCount], expanded[kObstacleCategoryCount];
     memcpy(checked, s_categoryChecked, sizeof(checked));
@@ -436,9 +455,12 @@ void TestObstacleModeControls()
         CHECK_SELECTION(memcmp(checked, s_categoryChecked, sizeof(checked)) == 0);
         CHECK_SELECTION(memcmp(expanded, s_categoryExpanded, sizeof(expanded)) == 0);
     }
+    HWND oldModeTooltip = mode->tooltip;
     DestroyWindow(panel.modeHost);
+    CHECK_SELECTION(!IsWindow(oldModeTooltip));
     panel.modeHost = CreateModeHost(parent, 0, 70, 280, nullptr);
     mode = reinterpret_cast<ModeHostState*>(GetWindowLongPtrA(panel.modeHost, GWLP_USERDATA));
+    checkModeTooltips();
     CHECK_SELECTION(CustomObstacleModeEnabled());
     RECT recreatedRect = {0, 100, 280, 500};
     HWND recreated = CreateScrollHost(parent, recreatedRect);

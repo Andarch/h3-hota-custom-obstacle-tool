@@ -6,20 +6,16 @@ Read `CODEX_HANDOFF.md` before planning or changing this project.
 
 - Target the official HotA map editor through an x86 injected DLL.
 - Preserve vanilla behavior unless a feature is explicitly active.
-- Default obstacle mode must use native placement and minimap colors, bypass
-  custom filters/overlays/fillers, and hide Obstacle Types. Custom mode is opt-in.
+- Standard mode must use native placement and minimap colors, bypass
+  custom filters/overlays/fillers, and hide Custom controls. Custom mode is opt-in.
 - Keep this plugin specific to the obstacle tool; do not add unrelated editor
   enhancements or attempt a full editor rewrite.
 - Keep obstacle features independent so each can be enabled, disabled, and tested alone.
 
 ## Current Safety Requirements
 
-- Preserve native object limits, including the garrison limit. The former
-  garrison increase to 255 was removed at the user's request.
-- Do not retain or re-enable the skill-booster limit increases without new
-  evidence that both editor and game behavior are correct.
-- Treat the uncommitted repeated-obstacle/cache-swapping code as an experiment,
-  not a verified implementation.
+- Preserve native object limits.
+- Do not replace shared editor caches.
 - Do not delete, revert, or overwrite the user's dirty worktree.
 - Do not modify original game executables or DLLs on disk.
 - Do not commit game binaries, LOD archives, raw extracted proprietary assets,

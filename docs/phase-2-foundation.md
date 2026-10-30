@@ -1,9 +1,7 @@
 # Plugin Foundation
 
-Current scope (2026-10-28): obstacle-tool enhancements only. The garrison
-limit feature and its three hook sites have been removed from the plugin.
-Native object limits apply. Earlier foundation verification is historical;
-see `CODEX_HANDOFF.md` for chronology and current feature acceptance.
+Current scope: obstacle-tool enhancements only, with native object limits.
+Current behavior and verification evidence are recorded in `CODEX_HANDOFF.md`.
 
 ## Initialization Contract
 
@@ -26,4 +24,4 @@ Do not use the historical 1.8.0 DLL addresses.
 
 Plugin and launcher intermediate directories and linker PDB names are separate.
 Build only Win32 Debug and Release, sequentially using the commands in
-`AGENTS.md`. Run compatibility tests using `tests/README.md`.
+`AGENTS.md`. Outputs are `HotACustomObstacleTool.exe` and `HotACustomObstacleTool.dll`. Run compatibility tests using `tests/README.md`.

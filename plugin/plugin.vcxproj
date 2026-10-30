@@ -15,7 +15,7 @@
     <ProjectGuid>{4F2A1B3C-8D5E-4A7F-B9C2-1E6D0A3F7B8E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>plugin</RootNamespace>
-    <TargetName>HotaMapEdPlugin</TargetName>
+    <TargetName>HotACustomObstacleTool</TargetName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -59,7 +59,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ProgramDatabaseFile>$(OutDir)HotaMapEdPlugin.plugin.pdb</ProgramDatabaseFile>
+      <ProgramDatabaseFile>$(OutDir)$(TargetName).plugin.pdb</ProgramDatabaseFile>
       <AdditionalDependencies>comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -80,7 +80,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ProgramDatabaseFile>$(OutDir)HotaMapEdPlugin.plugin.pdb</ProgramDatabaseFile>
+      <ProgramDatabaseFile>$(OutDir)$(TargetName).plugin.pdb</ProgramDatabaseFile>
       <AdditionalDependencies>comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -89,7 +89,6 @@
     <ClInclude Include="logger.h" />
     <ClInclude Include="minimap.h" />
     <ClInclude Include="obstacle_button_data.h" />
-    <ClInclude Include="obstacle_classification.h" />
     <ClInclude Include="obstacle_def_images.h" />
     <ClInclude Include="obstacle_diagnostics.h" />
     <ClInclude Include="obstacle_filter.h" />
@@ -106,7 +105,6 @@
     <ClCompile Include="logger.cpp" />
     <ClCompile Include="minimap.cpp" />
     <ClCompile Include="obstacle_button_data.cpp" />
-    <ClCompile Include="obstacle_classification.cpp" />
     <ClCompile Include="obstacle_def_images.cpp" />
     <ClCompile Include="obstacle_diagnostics.cpp" />
     <ClCompile Include="obstacle_filter.cpp" />
