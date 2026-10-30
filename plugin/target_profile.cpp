@@ -40,6 +40,20 @@ namespace
     };
     static_assert(kHotaModuleProfile.randTrnRowCount <= kMaxRandTrnRowCount);
 
+    // Russian 1.8.1 uses the same editor EXE but a separately built module.
+    // Verified obstacle functions are shifted by -0x20; table layouts are unchanged.
+    constexpr HotaModuleTargetProfile kRussianHotaModuleProfile =
+    {
+        "HotA 1.8.1 Russian",
+        "86D9F9471163F36F58AA9E42A3020C456C66D39344062F44224F2A7F7B20D72B",
+        0x000CC210, 0x000DD490, 0x000DDB34, 0x000DDB41,
+        { 0x8B, 0x4C, 0x24, 0x14, 0x8B, 0x54, 0x24, 0x1C },
+        201,
+        0x000CC2C0, 0x0017BAC4,
+        0x000CCC0F,
+    };
+    static_assert(kRussianHotaModuleProfile.randTrnRowCount <= kMaxRandTrnRowCount);
+
     bool HashFile(const char* path, BYTE output[32])
     {
         HANDLE file = CreateFileA(path, GENERIC_READ,
@@ -142,6 +156,8 @@ const HotaModuleTargetProfile* FindHotaModuleTargetProfile(const char* sha256)
     {
         return &kHotaModuleProfile;
     }
+    if (sha256 && strcmp(sha256, kRussianHotaModuleProfile.sha256) == 0)
+        return &kRussianHotaModuleProfile;
     return nullptr;
 }
 

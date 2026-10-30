@@ -5,13 +5,14 @@
 #include "logger.h"
 #include <commctrl.h>
 #include <shellapi.h>
-#include <string>
+#include <cstdlib>
 
 #pragma comment(lib, "shell32.lib")
 
 namespace
 {
     constexpr UINT kAboutCommand = 0xEFC1;
+    constexpr UINT kNativeAboutCommand = 0xE140; // MFC ID_APP_ABOUT, same EXE in both languages.
     constexpr UINT_PTR kSubclass = 0x43544F41;
     constexpr wchar_t kInstalled[] = L"HotACustomObstacleTool.About";
 
@@ -121,13 +122,9 @@ bool InstallAboutMenu(HWND owner)
     HMENU help = nullptr;
     for (int i = 0; i < GetMenuItemCount(menu); ++i)
     {
-        wchar_t label[128]{};
-        GetMenuStringW(menu, i, label, 128, MF_BYPOSITION);
-        std::wstring text;
-        for (const wchar_t* c = label; *c; ++c)
-            if (*c != L'&') text += *c;
-        if (text == L"Help")
-            help = GetSubMenu(menu, i);
+        HMENU submenu = GetSubMenu(menu, i);
+        if (submenu && GetMenuState(submenu, kNativeAboutCommand, MF_BYCOMMAND) != UINT(-1))
+            help = submenu;
     }
     if (!help || !SetWindowSubclass(owner, AboutWindow, kSubclass, 0))
         return false;

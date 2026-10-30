@@ -537,6 +537,19 @@ int main()
     CHECK(FindTargetProfile("CCF1E8424D913AA409ECC168F87FB20EDD64C3A56D412F2878065FC261BC6113"));
     CHECK(!FindHotaModuleTargetProfile(nullptr));
     CHECK(!FindHotaModuleTargetProfile("unknown"));
+    const auto* russianProfile = FindHotaModuleTargetProfile(
+        "86D9F9471163F36F58AA9E42A3020C456C66D39344062F44224F2A7F7B20D72B");
+    CHECK(russianProfile);
+    CHECK(russianProfile->obstacleWeightPredicateRva == 0xCC210);
+    CHECK(russianProfile->parserEntryRva == 0xDD490);
+    CHECK(russianProfile->parserStoreRva == 0xDDB34);
+    CHECK(russianProfile->parserFallbackRva == russianProfile->parserStoreRva + 13);
+    CHECK(russianProfile->terrainAccumulatorRva == 0xCC2C0);
+    CHECK(russianProfile->terrainViewTableRva == 0x17BAC4);
+    CHECK(russianProfile->mountainOrderCheckRva == 0xCCC0F);
+    CHECK(russianProfile->randTrnRowCount == 201);
+    CHECK(russianProfile->parserFallbackExpected[3] == 0x14);
+    CHECK(russianProfile->parserFallbackExpected[7] == 0x1C);
     CHECK(!FindHotaModuleTargetProfile("3CE4489A0B891E35C13848C33D1124F750D1A0C96D0B52761CA87BFFF5BC0D8E"));
     const auto* profile = FindHotaModuleTargetProfile(
         "365EB0C5C01ADBEAEC6A46E12D49BA2C710150270600ACE496496EB432DEA240");

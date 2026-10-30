@@ -363,6 +363,15 @@ void TestObstacleCategorySections()
 
 void TestObstacleModeControls()
 {
+    HWND nativeLabel = CreateWindowExA(0, "STATIC", "Brush", WS_POPUP,
+        0, 0, 100, 20, nullptr, nullptr, GetModuleHandleA(nullptr), nullptr);
+    CHECK_SELECTION(nativeLabel && IsNativeBrushLabel(nativeLabel));
+    SetWindowTextA(nativeLabel, "\xCA\xE8\xF1\xF2\xFC");
+    CHECK_SELECTION(IsNativeBrushLabel(nativeLabel));
+    SetWindowTextA(nativeLabel, "Terrain Type");
+    CHECK_SELECTION(!IsNativeBrushLabel(nativeLabel));
+    DestroyWindow(nativeLabel);
+
     CHECK_SELECTION(!CustomObstacleModeEnabled());
     CHECK_SELECTION(EnsurePlaceOverlayClass());
     HWND parent = CreateWindowExA(0, "STATIC", "", WS_POPUP, 0, 0, 300, 600,

@@ -24,9 +24,12 @@ Last updated: 2026-10-30
 
 ## User interface
 
+- Native Help lookup uses ID_APP_ABOUT (0xE140), independent of the menu language.
+  Brush discovery accepts English and native Russian Windows-1251 text. This enables
+  UI discovery only; all plugin strings remain English pending localization.
 - Help > About Custom Obstacle Tool... is available in both modes, after the
   existing native About item. The owner-thread menu subclass opens a centered
-  modal native dialog with v0.9, build configuration, author Andarch, description,
+  modal native dialog with v0.9.1, build configuration, author Andarch, description,
   GitHub repository link and OK. Escape closes it. The compact dialog is
   250x128 dialog units, with version and build on one row and 10-unit side margins.
   A private activation context enables the SysLink control independently of the
@@ -35,7 +38,7 @@ Last updated: 2026-10-30
   The subclass delegates first, then enables only the tool's About command, leaving
   native command states intact. Startup/direct WM_COMMAND tests alone miss this.
 - `resources/version.h` defines the shared dialog/product version and binary
-  metadata. EXE and DLL have numeric file version 0.9.0.0 and product version v0.9.
+  metadata. EXE and DLL have numeric file version 0.9.1.0 and product version v0.9.1.
   `resources/version.rc` is compiled into both; `plugin/about.rc` holds the dialog.
 
 - Standard is the startup mode: native generation, enablement and minimap colors;
@@ -131,7 +134,11 @@ Regenerate with:
 Statically verified supported hashes:
 
 - `h3hota_maped.exe`: `CCF1E8424D913AA409ECC168F87FB20EDD64C3A56D412F2878065FC261BC6113`.
-- `hota_me.dll`: `365EB0C5C01ADBEAEC6A46E12D49BA2C710150270600ACE496496EB432DEA240`.
+- English `hota_me.dll`: `365EB0C5C01ADBEAEC6A46E12D49BA2C710150270600ACE496496EB432DEA240`.
+- Russian `hota_me.dll`: `86D9F9471163F36F58AA9E42A3020C456C66D39344062F44224F2A7F7B20D72B`.
+  Same EXE; module hooks move by -0x20, terrain-view table remains 0x17BAC4.
+  See `docs/russian-1.8.1-compatibility.md` for static comparison and runtime evidence.
+  The address table below describes the English DLL; use profiles for either build.
 
 Both are validated before hooks; original-byte guards and failure propagation
 remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
@@ -166,6 +173,16 @@ remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
 
 ## Verification and release readiness
 
+- Russian compatibility: Debug/Release tests and native startup/generation probes
+  pass with the supplied Russian DLL and local English game data. User confirmed
+  the compatibility build works in the Russian VM. This is functional acceptance,
+  not exhaustive saved-map regression evidence. v0.9.1 includes compatibility;
+  actual translations remain deferred. Published v0.9 has not been replaced.
+  The normal Release DLL is locked by an open editor. The matching v0.9.1 Release
+  EXE/DLL pair is under `outputs/v0.9.1/`; both metadata resources and Debug/Release
+  tests were verified after the version bump. Do not package the stale normal
+  Release DLL. The earlier VM test pair is under `scratch/russian_build/Release/`.
+
 - About addition: Debug/Release builds and compatibility suites pass, including
   native-menu preservation, duplicate-install prevention, actual modal resource,
   exact content, centering, OK and Escape. Runtime verified in an isolated 1.8.1
@@ -194,7 +211,7 @@ commands are in `tests/README.md`. Native smoke scenarios are in
   row blocking remains `HOTA_MAPED_PLUGIN_BLOCK_OBSTACLE_IDS`; generation tracing
   remains `HOTA_MAPED_PLUGIN_OBSTACLE_VARIANT_TRACE`. Standard bypasses diagnostics.
 - `README.md` is the user guide: requirements, installation/discovery/optional INI,
-  features, usage, limitations, troubleshooting/log location, updates and removal.
+  features, usage, troubleshooting/log location, updates and removal.
   Release EXE/DLL imports were inspected: both depend on MSVCP140/VCRUNTIME140.
   The guide links Microsoft's latest v14 x86 installer, required even on x64 Windows.
   Include the guide and root `LICENSE` in the release ZIP. User selected MIT;

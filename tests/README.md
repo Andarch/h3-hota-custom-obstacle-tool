@@ -90,3 +90,9 @@ installation, preservation of native menu updates/disabled states while the tool
 entry stays enabled after WM_INITMENUPOPUP, exact version/author/description,
 centered modal ownership, OK and keyboard Escape. It activates its own common-controls v6 context, so the
 SysLink works without relying on a host manifest. Tests do not open the browser.
+
+Russian 1.8.1 regression cases verify the separate module profile and shifted
+hook RVAs, unchanged table/stack layout, native Russian brush-label discovery,
+and Help discovery by the native About command with either English or Russian
+captions. Runtime evidence and limits are in
+[Russian compatibility notes](../docs/russian-1.8.1-compatibility.md).

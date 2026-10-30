@@ -832,11 +832,14 @@ namespace
         return GetWindow(child, GW_HWNDNEXT);
     }
 
-    bool WindowTextEquals(HWND hwnd, const char* expected)
+    bool IsNativeBrushLabel(HWND hwnd)
     {
         char text[64] = {};
         GetWindowTextA(hwnd, text, sizeof(text));
-        return strcmp(text, expected) == 0;
+        // Native Russian controls use Windows-1251, returned unchanged by the
+        // ANSI API on both Russian and Western system code pages.
+        return strcmp(text, "Brush") == 0 ||
+            strcmp(text, "\xCA\xE8\xF1\xF2\xFC") == 0; // Russian: Brush
     }
 
     bool FindBrushSection(
@@ -852,7 +855,7 @@ namespace
 
         for (HWND child = FirstDirectChild(parent); child; child = NextSibling(child))
         {
-            if (!IsWindowVisible(child) || !WindowTextEquals(child, "Brush"))
+            if (!IsWindowVisible(child) || !IsNativeBrushLabel(child))
                 continue;
 
             RECT rect = {};

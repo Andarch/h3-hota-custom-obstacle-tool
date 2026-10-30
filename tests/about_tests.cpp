@@ -2,6 +2,7 @@
 #include "../plugin/about.cpp"
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #define CHECK_ABOUT(x) do { if (!(x)) { std::fprintf(stderr, "About test failed: %s at %d\n", #x, __LINE__); ExitProcess(1); } } while (false)
 namespace
 {
@@ -13,7 +14,7 @@ namespace
         {
             nativePopupUpdated = true;
             HMENU popup = reinterpret_cast<HMENU>(wParam);
-            EnableMenuItem(popup, 101, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(popup, kNativeAboutCommand, MF_BYCOMMAND | MF_GRAYED);
             EnableMenuItem(popup, kAboutCommand, MF_BYCOMMAND | MF_GRAYED);
             return 123;
         }
@@ -30,7 +31,7 @@ namespace
 #else
         foundBuild |= wcscmp(text, L"Release Build") == 0;
 #endif
-        foundVersion |= wcscmp(text, L"v0.9") == 0;
+        foundVersion |= wcscmp(text, L"v0.9.1") == 0;
         foundAuthor |= wcscmp(text, L"By Andarch") == 0;
         foundDescription |= wcscmp(text,
             L"Customizable obstacle generation for the HotA Map Editor") == 0;
@@ -63,7 +64,7 @@ namespace
             PostMessageW(dialog, WM_COMMAND, IDOK, 0);
     }
 }
-void TestAboutUi()
+void TestAboutCaption(const wchar_t* helpCaption)
 {
     HWND owner = CreateWindowExW(0, L"STATIC", L"About test owner", WS_OVERLAPPEDWINDOW,
         100, 100, 700, 500, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -71,14 +72,14 @@ void TestAboutUi()
     HMENU menu = CreateMenu(), help = CreatePopupMenu();
     AppendMenuW(help, MF_STRING, 100, L"Help Topics");
     AppendMenuW(help, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(help, MF_STRING, 101, L"About Map Editor...");
-    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"&Help");
+    AppendMenuW(help, MF_STRING, kNativeAboutCommand, L"About Map Editor...");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(help), helpCaption);
     SetMenu(owner, menu);
     CHECK_ABOUT(SetWindowSubclass(owner, NativeMenuUpdate, 1, 0));
     CHECK_ABOUT(InstallAboutMenu(owner));
     CHECK_ABOUT(InstallAboutMenu(owner));
     CHECK_ABOUT(GetMenuItemCount(help) == 4);
-    CHECK_ABOUT(GetMenuItemID(help, 2) == 101);
+    CHECK_ABOUT(GetMenuItemID(help, 2) == kNativeAboutCommand);
     CHECK_ABOUT(GetMenuItemID(help, 3) == kAboutCommand);
     for (int command : { IDOK, IDCANCEL })
     {
@@ -87,7 +88,7 @@ void TestAboutUi()
             reinterpret_cast<WPARAM>(help), MAKELPARAM(0, FALSE)) == 123);
         CHECK_ABOUT(nativePopupUpdated);
         CHECK_ABOUT(!(GetMenuState(help, kAboutCommand, MF_BYCOMMAND) & (MF_GRAYED | MF_DISABLED)));
-        CHECK_ABOUT(GetMenuState(help, 101, MF_BYCOMMAND) & MF_GRAYED);
+        CHECK_ABOUT(GetMenuState(help, kNativeAboutCommand, MF_BYCOMMAND) & MF_GRAYED);
         inspected = false;
         closeCommand = command;
         SetTimer(owner, 1, 50, InspectDialog);
@@ -97,4 +98,10 @@ void TestAboutUi()
     }
     DestroyWindow(owner);
     std::puts("PASS: About menu preserves native entries/states, stays enabled after native popup updates, installs once, opens centered modal dialog and closes with OK/Escape.");
+}
+
+void TestAboutUi()
+{
+    TestAboutCaption(L"&Help");
+    TestAboutCaption(L"\u0421\u043f\u0440\u0430\u0432\u043a\u0430");
 }
