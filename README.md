@@ -67,7 +67,7 @@ files. The tool does not overwrite original game executables, DLLs, or data tabl
 - **121 selectable obstacle buttons** covering 880 obstacle DEFs, organized into
   Mountains, Reefs, Hills, Mounds, Lakes, Craters, Fissures, Trees, Undergrowth,
   Rocks, Animals, and Miscellaneous.
-- Enables placement of many obstacles not supported by native placement
+- **Enables placement of many obstacles not supported by native placement**
   (certain mountain types, sand dunes, glaciers, ice formations, arches, animals,
   crates, barrels, ropes, sacks, abandoned boats, burnt structures, crumbled structures,
   bones)   
