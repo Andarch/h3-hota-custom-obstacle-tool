@@ -137,3 +137,9 @@ Glacier order tests cover all 36 pairings of the six mapped DEFs, wrong types,
 subtypes and groups, missing mappings, forbidden overlap, row bounds, stale
 candidate context, selection and Standard bypass. See [glacier gap notes](../docs/glacier-gaps.md)
 for native all-terrain and Snow-only validation.
+
+Ice Arch order tests cover all four variant pairings, rejection of cross-subtype
+pairs (including glaciers), unchanged Wasteland Arch behavior, wrong types/groups,
+forbidden overlap, selection and Standard bypass. Native separate/mixed variant,
+Wasteland control, English/Russian and Snow-only results are recorded in
+[the Ice Arch notes](../docs/ice-arch-gaps.md).

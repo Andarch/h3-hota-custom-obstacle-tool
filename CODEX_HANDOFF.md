@@ -1,6 +1,6 @@
 # Custom Obstacle Tool Handoff
 
-Last updated: 2026-10-30
+Last updated: 2026-10-31
 
 ## Current checkpoint
 
@@ -137,8 +137,11 @@ Regenerate with:
   Mountains AVLwtf00/01/02 pieces). Other families remain excluded. The latter
   avoids intermittent gaps beside Void; see docs/highlands-boundary-gaps.md.
   Selected glacier pairs (type 140/subtype 14, both mapped to the current button)
-  also use this adjustment; other type-140 families keep native order checks.
-  Native overlap bans and footprint/Void checks remain. See docs/glacier-gaps.md.
+  also use this adjustment; see docs/glacier-gaps.md. Ice Arch pairs (type
+  140/subtype 3) now use the same same-subtype/selected-button gate, avoiding
+  internal and boundary gaps. Other type-140 families (including Wasteland Arches
+  and dunes) keep native order checks. Native overlap bans and footprint/Void
+  checks remain. See docs/ice-arch-gaps.md for isolated variant comparisons.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining

@@ -533,6 +533,57 @@ namespace
         ClearVariantTraceRows();
     }
 
+    void TestIceArchOrder()
+    {
+        DWORD candidate[19] = {}, other[19] = {}, row[19] = {}, otherRow[19] = {};
+        DWORD wrapper[5] = {}, object[7] = {};
+        int overlaps[201] = {};
+        candidate[0] = 8006; other[0] = 8007;
+        candidate[7] = other[7] = 140;
+        candidate[8] = other[8] = 3;
+        otherRow[0] = 56; overlaps[56] = 30;
+        row[16] = reinterpret_cast<DWORD>(overlaps);
+        wrapper[0] = reinterpret_cast<DWORD>(other);
+        wrapper[4] = reinterpret_cast<DWORD>(otherRow);
+        object[1] = reinterpret_cast<DWORD>(wrapper);
+        s_candidateObjectTemplate = reinterpret_cast<DWORD>(candidate);
+        s_traceCandidateRow = reinterpret_cast<DWORD>(row);
+        s_generationFilterMode = static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        auto allowed = [&]() { return AllowMountainOrder(reinterpret_cast<DWORD>(candidate),
+            reinterpret_cast<DWORD>(row), reinterpret_cast<DWORD>(object)); };
+        const char* names[] = { "AVLifar0.def", "AVLifar1.def" };
+        for (const char* candidateName : names)
+        {
+            RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(candidate), reinterpret_cast<DWORD>(candidateName));
+            s_traceCandidateButton = ObstacleButtonIndexForObjectTemplate(reinterpret_cast<DWORD>(candidate));
+            for (const char* otherName : names)
+            {
+                RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(other), reinterpret_cast<DWORD>(otherName));
+                CHECK(allowed());
+            }
+        }
+        for (DWORD subtype : { 6u, 13u, 14u })
+        {
+            candidate[8] = subtype; CHECK(!allowed()); candidate[8] = 3;
+            other[8] = subtype; CHECK(!allowed()); other[8] = 3;
+        }
+        candidate[8] = other[8] = 13; CHECK(!allowed());
+        candidate[8] = other[8] = 3;
+        other[7] = 134; CHECK(!allowed()); other[7] = 140;
+        candidate[7] = 134; CHECK(!allowed()); candidate[7] = 140;
+        overlaps[56] = -5000; CHECK(!allowed()); overlaps[56] = 30;
+        s_traceCandidateButton = 0; CHECK(!allowed());
+        s_traceCandidateButton = ObstacleButtonIndexForObjectTemplate(reinterpret_cast<DWORD>(candidate));
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(other), reinterpret_cast<DWORD>("avlmtwl7.def"));
+        CHECK(!allowed());
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(other), reinterpret_cast<DWORD>(names[0]));
+        SetObstacleButtonSelection(0, 0, 0, 0); CHECK(!allowed());
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        s_generationFilterMode = 0; CHECK(!allowed());
+        ClearVariantTraceRows();
+    }
+
     void TestPredicateThunk()
     {
         DWORD weights[12] = {};
@@ -828,6 +879,7 @@ int main()
     TestPredicateThunk();
     TestMountainOrder();
     TestGlacierOrder();
+    TestIceArchOrder();
     TestDuneFillPolicy();
     TestAllTerrainDuneFill();
     std::puts("PASS: painted map layers, terrain geometry, 1.8.1 profiles, byte guards, row filters/bounds, and x86 hook thunks.");

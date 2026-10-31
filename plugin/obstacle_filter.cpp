@@ -1057,16 +1057,16 @@ namespace
         DWORD otherRow = 0, rowId = 0, overlaps = 0, weight = 0, subtype = 0, otherSubtype = 0;
         if (!SafeReadDword(candidateTemplate + 28, type) ||
             !SafeReadDword(candidateTemplate + 32, subtype) ||
-            (type != 134 && (type != 140 || subtype != 14)) ||
+            (type != 134 && (type != 140 || (subtype != 14 && subtype != 3))) ||
             !SafeReadDword(existing + 4, wrapper) || !wrapper ||
             !SafeReadDword(wrapper, otherTemplate) || !otherTemplate ||
             !SafeReadDword(otherTemplate + 28, otherType)) return false;
         if (type == 140)
         {
-            // Glaciers share the mountain order issue, but have their own native type.
-            // Limit the exception to glacier pairs belonging to the selected button.
+            // Glaciers and Ice Arches have the mountain order issue with native type 140.
+            // Limit the exception to same-subtype pairs from the selected button.
             if (otherType != 140 || !SafeReadDword(otherTemplate + 32, otherSubtype) ||
-                otherSubtype != 14 ||
+                otherSubtype != subtype ||
                 ObstacleButtonIndexForObjectTemplate(candidateTemplate) != s_traceCandidateButton ||
                 ObstacleButtonIndexForObjectTemplate(otherTemplate) != s_traceCandidateButton)
                 return false;
