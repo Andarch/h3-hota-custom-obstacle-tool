@@ -149,3 +149,9 @@ private self-overlap only, unchanged source/cross-family overlap/adjacency data,
 terrain masks and Void, native row identity, selection and Standard bypass.
 Native saved-layout and all seven hill-family controls are in
 [the Snow Hill notes](../docs/snow-hill-gaps.md).
+
+Lake rule tests cover all seven affected families and the four working controls,
+all-terrain off/on/off, changed forbidden self-overlap only, preserved positive
+self-overlap, cross-row/source arrays and row IDs, terrain masks, Void, repeated
+candidates, selection and Standard bypass. Native results are in
+[the lake gap notes](../docs/lake-gaps.md).

@@ -294,6 +294,78 @@ namespace
         SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
     }
 
+    void TestLakeRules()
+    {
+        struct LakeCase { const char* def; DWORD type, subtype, terrain, row; int overlap; };
+        const LakeCase cases[] = {
+            { "avllk1d0.def", 126, 0, 0, 4, -5000 },
+            { "avllk1g0.def", 126, 0, 2, 36, -5000 },
+            { "avlflk10.def", 121, 0, 3, 55, -5000 },
+            { "avllk1s0.def", 126, 0, 4, 67, -5000 },
+            { "avllk1u0.def", 126, 0, 6, 103, -5000 },
+            { "avlwll00.def", 140, 8, 11, 188, -5000 },
+            { "avlwloi1.def", 154, 0, 11, 189, -5000 },
+            { "avlhll00.def", 126, 0, 10, 171, 5 },
+            { "avllk1r.def", 177, 0, 5, 9, 10 },
+            { "avllav10.def", 127, 0, 7, 118, 30 },
+            { "avllv1u0.def", 128, 0, 6, 104, 30 },
+        };
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        for (const auto& item : cases)
+        {
+            DWORD source[19] = {}, object[19] = {}, candidate[5] = {};
+            int weights[12], adjacent[201], overlap[201];
+            for (int& value : weights) value = -5000;
+            weights[item.terrain] = 5;
+            for (int& value : adjacent) value = 5;
+            for (int& value : overlap) value = -5000;
+            overlap[item.row] = item.overlap;
+            DWORD holder = reinterpret_cast<DWORD>(weights);
+            source[0] = item.row; source[1] = reinterpret_cast<DWORD>(&holder);
+            source[12] = reinterpret_cast<DWORD>(adjacent); source[13] = source[12] + sizeof(adjacent);
+            source[16] = reinterpret_cast<DWORD>(overlap); source[17] = source[16] + sizeof(overlap);
+            object[0] = 8009; object[7] = item.type; object[8] = item.subtype;
+            object[6] = 1u << item.terrain; candidate[0] = reinterpret_cast<DWORD>(object);
+            RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object), reinterpret_cast<DWORD>(item.def));
+            for (bool allTerrains : { false, true, false })
+            {
+                SetAllObstacleTerrains(allTerrains);
+                SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+                candidate[4] = reinterpret_cast<DWORD>(source);
+                CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+                const DWORD applied = candidate[4];
+                const int expected = item.overlap <= -5000 ? 30 : item.overlap;
+                CHECK(reinterpret_cast<int*>(reinterpret_cast<DWORD*>(applied)[16])[item.row] == expected);
+                CHECK(reinterpret_cast<DWORD*>(applied)[0] == item.row);
+                if (item.overlap <= -5000) CHECK(applied != reinterpret_cast<DWORD>(source));
+                for (DWORD i = 0; i < 201; ++i)
+                {
+                    CHECK(overlap[i] == (i == item.row ? item.overlap : -5000));
+                    if (i != item.row) CHECK(reinterpret_cast<int*>(reinterpret_cast<DWORD*>(applied)[16])[i] == -5000);
+                    CHECK(adjacent[i] == 5);
+                }
+                const auto* resultWeights = reinterpret_cast<int*>(**reinterpret_cast<DWORD**>(applied + 4));
+                for (DWORD terrain = 0; terrain < 12; ++terrain)
+                    CHECK(resultWeights[terrain] == (terrain != 9 && (allTerrains || terrain == item.terrain) ? 5 : -5000));
+                CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)) && candidate[4] == applied);
+                CHECK(weights[item.terrain] == 5 && weights[9] == -5000);
+            }
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+            SetObstacleButtonSelection(0, 0, 0, 0);
+            candidate[4] = reinterpret_cast<DWORD>(source);
+            CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+            CHECK(candidate[4] == reinterpret_cast<DWORD>(source));
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+            CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+            CHECK(candidate[4] == reinterpret_cast<DWORD>(source) && s_selectedObjectRules.empty());
+            SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        }
+        DWORD unrelated[19] = {};
+        unrelated[7] = 126; unrelated[8] = 1; CHECK(!IsLakeTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[7] = 140; unrelated[8] = 3; CHECK(!IsLakeTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[8] = 5; CHECK(!IsLakeTemplate(reinterpret_cast<DWORD>(unrelated)));
+    }
+
     DWORD s_fillAttemptMask = 0;
     BOOL __fastcall DuneCellEligibleStub(DWORD cell, DWORD)
     {
@@ -926,6 +998,7 @@ int main()
     TestAllTerrainGeneration();
     TestSelectedRules();
     TestSnowHillRules();
+    TestLakeRules();
     TestNonPositiveAllTerrainWeights();
     TestParserThunks();
     TestPredicateThunk();

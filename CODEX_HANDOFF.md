@@ -126,7 +126,8 @@ Regenerate with:
   existing positive weights. Zero/soft negative weights otherwise fail the native
   scorer's positive-terrain gate (Grass Mountains 1/2/3 on Dirt, shared row 38).
   Ordinary Custom runs retain their existing zero/soft-negative scoring behavior.
-  Expanded-terrain adjacency handling is reused; Void and overlap bans remain.
+  Expanded-terrain adjacency handling is reused; Void remains excluded. Overlap
+  entries are preserved except for the family-specific self-overlap fixes below.
   See docs/all-terrain-zero-weights.md for reproduction and validation.
 - Terrain-transition fix: eligible selected candidates use actual footprint terrains,
   rather than extra Dirt/Sand implied solely by transition artwork. Preserve actual
@@ -147,6 +148,13 @@ Regenerate with:
   other overlap entries, source rows, footprints, Void and drawing-order checks
   remain native. This applies to selected Custom runs with either terrain-option
   setting; Standard bypasses it. See docs/snow-hill-gaps.md.
+- Lakes with forbidden native self-overlap use private self-overlap weight 30:
+  Dirt/Grass/Swamp/Subterranean Lakes (type 126/subtype 0), Frozen Lakes (121/0),
+  Limestone Lakes (140/8) and Tar Pits (154/0). Positive native self-overlap is
+  preserved, including Highlands Lakes (126/0, row 171, weight 5). Other overlap
+  entries, source rows, drawing-order checks, footprints and Void remain unchanged.
+  Selected Custom runs support both terrain-option settings; Standard bypasses it.
+  See docs/lake-gaps.md for the eleven-family native controls and row IDs.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining
