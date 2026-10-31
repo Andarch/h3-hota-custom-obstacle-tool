@@ -1054,14 +1054,26 @@ namespace
             !row || row != s_traceCandidateRow || !existing ||
             !IsObstacleButtonSelected(s_traceCandidateButton)) return false;
         DWORD type = 0, wrapper = 0, otherTemplate = 0, otherType = 0;
-        DWORD otherRow = 0, rowId = 0, overlaps = 0, weight = 0, otherSubtype = 0;
-        if (!SafeReadDword(candidateTemplate + 28, type) || type != 134 ||
+        DWORD otherRow = 0, rowId = 0, overlaps = 0, weight = 0, subtype = 0, otherSubtype = 0;
+        if (!SafeReadDword(candidateTemplate + 28, type) ||
+            !SafeReadDword(candidateTemplate + 32, subtype) ||
+            (type != 134 && (type != 140 || subtype != 14)) ||
             !SafeReadDword(existing + 4, wrapper) || !wrapper ||
             !SafeReadDword(wrapper, otherTemplate) || !otherTemplate ||
             !SafeReadDword(otherTemplate + 28, otherType)) return false;
+        if (type == 140)
+        {
+            // Glaciers share the mountain order issue, but have their own native type.
+            // Limit the exception to glacier pairs belonging to the selected button.
+            if (otherType != 140 || !SafeReadDword(otherTemplate + 32, otherSubtype) ||
+                otherSubtype != 14 ||
+                ObstacleButtonIndexForObjectTemplate(candidateTemplate) != s_traceCandidateButton ||
+                ObstacleButtonIndexForObjectTemplate(otherTemplate) != s_traceCandidateButton)
+                return false;
+        }
         // Highlands Mountains includes native waterfall pieces (AVLwtf00/01/02).
         // Permit their order conflicts only with a mountain from the same button.
-        if (otherType != 134 &&
+        else if (otherType != 134 &&
             (otherType != 139 || !SafeReadDword(otherTemplate + 32, otherSubtype) ||
              otherSubtype != 17 ||
              ObstacleButtonIndexForObjectTemplate(candidateTemplate) != s_traceCandidateButton ||

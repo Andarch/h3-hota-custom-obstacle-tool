@@ -132,3 +132,8 @@ Highlands drawing-order regressions cover all three mapped waterfall pieces,
 subtype/group mismatches, forbidden overlap, unselected candidates and Standard
 bypass, alongside existing mountain-pair and unrelated-family checks. Native
 saved-terrain evidence is in [the Highlands notes](../docs/highlands-boundary-gaps.md).
+
+Glacier order tests cover all 36 pairings of the six mapped DEFs, wrong types,
+subtypes and groups, missing mappings, forbidden overlap, row bounds, stale
+candidate context, selection and Standard bypass. See [glacier gap notes](../docs/glacier-gaps.md)
+for native all-terrain and Snow-only validation.
