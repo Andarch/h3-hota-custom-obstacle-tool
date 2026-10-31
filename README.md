@@ -1,12 +1,30 @@
 # HotA Custom Obstacle Tool
 
-**Version:** v0.9.2 · **Author:** Andarch
+**Version: v0.9.2 · Author: Andarch**
 
 Supports HotA 1.8.1 in English and Russian
 
-The tool adds a Custom mode to the map editor's Obstacle Tool so you can choose which
-obstacles it generates and optionally allow all obstacles to be generated on any
-terrain type. Standard mode keeps the editor's native obstacle placement.
+This plugin adds a **Custom** mode to the map editor's Obstacle Tool so you can choose which
+obstacles it generates and optionally allow all obstacles to be generated on any terrain type.
+**Standard** mode keeps the editor's native obstacle placement, allowing you to still use the
+native tool functionality while the plugin is loaded, and you can seamlessly switch between modes.
+
+<table border="0">
+  <tr>
+    <td width="25%" valign="top">
+      <img src="./images/panel0.png" width="100%">
+    </td>
+    <td width="25%" valign="top">
+      <img src="./images/panel1.png" width="100%">
+    </td>
+    <td width="25%" valign="top">
+      <img src="./images/panel2.png" width="100%">
+    </td>
+    <td width="25%" valign="top">
+      <img src="./images/panel3.png" width="100%">
+    </td>
+  </tr>
+</table>
 
 ## Features
 
