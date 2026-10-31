@@ -122,14 +122,20 @@ Regenerate with:
 - Selected custom templates use a temporary objects overlay read by the native
   loader. Original game files are not changed; the temporary file is cleaned up.
 - Private scoring rows copy native row IDs, weights, adjacency and overlap arrays.
-  Expanded terrain masks permit previously prohibited terrain weights at weight 5
-  and reuse the established expanded-terrain adjacency handling; overlap bans remain.
+  All-terrain runs promote every allowed nonpositive terrain weight to 5, preserving
+  existing positive weights. Zero/soft negative weights otherwise fail the native
+  scorer's positive-terrain gate (Grass Mountains 1/2/3 on Dirt, shared row 38).
+  Ordinary Custom runs retain their existing zero/soft-negative scoring behavior.
+  Expanded-terrain adjacency handling is reused; Void and overlap bans remain.
+  See docs/all-terrain-zero-weights.md for reproduction and validation.
 - Terrain-transition fix: eligible selected candidates use actual footprint terrains,
   rather than extra Dirt/Sand implied solely by transition artwork. Preserve actual
   terrain masks, tile flags, footprint checks and native collision handling.
-- Mountain-only drawing-order adjustment applies only to type-134 pairs, with a
-  selected/current candidate and a permitted overlap weight. Never broaden it to
-  other families. The user accepted the mountain transition/order result.
+- Mountain drawing-order adjustment requires a selected/current type-134 candidate
+  and a permitted native overlap weight. Existing pieces must be type 134 or a
+  type-139/subtype-17 waterfall mapped to the same selected button (the Highlands
+  Mountains AVLwtf00/01/02 pieces). Other families remain excluded. The latter
+  avoids intermittent gaps beside Void; see docs/highlands-boundary-gaps.md.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining
@@ -191,6 +197,13 @@ remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
   0x42B23E and 0x43C114 are used by the production scanner.
 
 ## Verification and release readiness
+
+- Grass Mountains/Dirt: native tests reproduced zero placements for all three
+  groups with Allow all terrains on. Promoting nonpositive weights in run-private
+  scoring rows fixes all three; off/on/off still rejects Dirt with the option off
+  and keeps native Grass generation. Debug/Release suites, Russian-module native
+  tests and the saved-map terrain-layout reproduction pass. The dune boundary
+  regression still has zero eligible gaps and zero blocked footprints on Void.
 
 - Dune boundary fix: reproduced 2-3 gaps per run using the terrain/view/flip data
   from the user's saved 72x72 two-level obstacle_test.h3m (read-only copy). Gaps were

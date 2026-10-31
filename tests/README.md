@@ -120,3 +120,15 @@ preserved native firstTerrain/row IDs, private scoring weights, unchanged overla
 arrays, parent-approved terrain-edge handling only during the filler pass, and
 Standard-mode bypass. Native saved-terrain reproduction evidence is recorded in
 [the dune gap-fill notes](../docs/dune-all-terrain-gap-fill.md).
+
+Nonpositive all-terrain scoring regressions cover native zero and soft-negative
+weights, preserved positive weights, unchanged ordinary Custom behavior, expanded
+adjacency handling, preserved source/overlap arrays and row IDs, explicit terrain
+masks, and Void rejection even with a positive native Void weight. Native Grass
+Mountains 1/2/3 off/on/off and saved-terrain evidence is in
+[the zero-weight notes](../docs/all-terrain-zero-weights.md).
+
+Highlands drawing-order regressions cover all three mapped waterfall pieces,
+subtype/group mismatches, forbidden overlap, unselected candidates and Standard
+bypass, alongside existing mountain-pair and unrelated-family checks. Native
+saved-terrain evidence is in [the Highlands notes](../docs/highlands-boundary-gaps.md).

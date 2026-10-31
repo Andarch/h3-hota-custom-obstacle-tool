@@ -738,7 +738,7 @@ namespace
     DWORD s_defaultSelectedRow = 0;
     bool s_selectedRulesFailureLogged = false;
 
-    bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules)
+    bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules, bool allTerrains)
     {
         DWORD holder = 0, weights = 0;
         if (!source || !SafeReadDword(source + 4, holder) ||
@@ -754,8 +754,12 @@ namespace
             if (!SafeReadDword(weights + terrain * 4, value)) return false;
             const int nativeWeight = static_cast<int>(value);
             const bool allowed = terrain != 9 && (mask & (1u << terrain)) != 0;
-            expanded |= allowed && nativeWeight <= -4000;
-            rules.weights[terrain] = allowed ? (nativeWeight <= -4000 ? 5 : nativeWeight) : -5000;
+            // The native scorer requires a positive actual-terrain weight.
+            // Zero and soft negative weights can still prevent placement even
+            // after the template mask permits the terrain (Grass Mountains/Dirt).
+            const bool promoteWeight = nativeWeight <= -4000 || (allTerrains && nativeWeight <= 0);
+            expanded |= allowed && promoteWeight;
+            rules.weights[terrain] = allowed ? (promoteWeight ? 5 : nativeWeight) : -5000;
         }
         const DWORD count = s_hotaProfile->randTrnRowCount;
         if (rules.row[13] < rules.row[12] || rules.row[17] < rules.row[16] ||
@@ -840,7 +844,7 @@ namespace
             if (!button) return false;
             auto inserted = s_selectedObjectRules.emplace(objectTemplate, SelectedObjectRules{});
             found = inserted.first;
-            if (!BuildSelectedObjectRules(source, s_generationAllTerrains ? kAllObstacleTerrainMask : mask & button->terrainMask, found->second))
+            if (!BuildSelectedObjectRules(source, s_generationAllTerrains ? kAllObstacleTerrainMask : mask & button->terrainMask, found->second, s_generationAllTerrains))
             {
                 s_selectedObjectRules.erase(found);
                 if (!s_selectedRulesFailureLogged)
@@ -1050,12 +1054,20 @@ namespace
             !row || row != s_traceCandidateRow || !existing ||
             !IsObstacleButtonSelected(s_traceCandidateButton)) return false;
         DWORD type = 0, wrapper = 0, otherTemplate = 0, otherType = 0;
-        DWORD otherRow = 0, rowId = 0, overlaps = 0, weight = 0;
+        DWORD otherRow = 0, rowId = 0, overlaps = 0, weight = 0, otherSubtype = 0;
         if (!SafeReadDword(candidateTemplate + 28, type) || type != 134 ||
             !SafeReadDword(existing + 4, wrapper) || !wrapper ||
             !SafeReadDword(wrapper, otherTemplate) || !otherTemplate ||
-            !SafeReadDword(otherTemplate + 28, otherType) || otherType != 134 ||
-            !SafeReadDword(wrapper + 16, otherRow) || !otherRow ||
+            !SafeReadDword(otherTemplate + 28, otherType)) return false;
+        // Highlands Mountains includes native waterfall pieces (AVLwtf00/01/02).
+        // Permit their order conflicts only with a mountain from the same button.
+        if (otherType != 134 &&
+            (otherType != 139 || !SafeReadDword(otherTemplate + 32, otherSubtype) ||
+             otherSubtype != 17 ||
+             ObstacleButtonIndexForObjectTemplate(candidateTemplate) != s_traceCandidateButton ||
+             ObstacleButtonIndexForObjectTemplate(otherTemplate) != s_traceCandidateButton))
+            return false;
+        if (!SafeReadDword(wrapper + 16, otherRow) || !otherRow ||
             !SafeReadDword(otherRow, rowId) || rowId >= kMaxRandTrnRowCount ||
             !SafeReadDword(row + 64, overlaps) || !overlaps ||
             !SafeReadDword(overlaps + rowId * 4, weight) || static_cast<int>(weight) <= -5000)
@@ -1730,7 +1742,7 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         if (s_edgeRelaxations)
             LogFormat("Obstacle terrain transitions: relaxed %lu predicate checks; accumulated %lu actual-terrain cells; native collision checks retained.", s_edgeRelaxations, s_accumulatorRelaxations);
         DumpVariantTraceRows(previousMode);
-        LogFormat("Mountain order adjustment: %lu permitted mountain-pair conflicts; other native scoring retained.", s_mountainOrderExceptions);
+        LogFormat("Mountain order adjustment: %lu permitted mountain-piece conflicts; other native scoring retained.", s_mountainOrderExceptions);
         CleanupObjectsOverlayFile();
         s_traceCandidateRow = 0;
         s_candidateTerrainMask = 0;

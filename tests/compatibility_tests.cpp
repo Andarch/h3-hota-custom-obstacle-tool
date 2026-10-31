@@ -126,6 +126,41 @@ namespace
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
     }
 
+    void TestNonPositiveAllTerrainWeights()
+    {
+        DWORD row[19] = {};
+        int weights[12], adjacent[201], overlap[201];
+        for (int& weight : weights) weight = 10;
+        weights[0] = 0; // Grass mountain native Dirt weight.
+        weights[1] = -7; // Soft penalty, not a forbidden-terrain sentinel.
+        weights[2] = 5;
+        weights[9] = 20; // Void remains forbidden even with a positive source weight.
+        for (int& value : adjacent) value = -5000;
+        for (int& value : overlap) value = -5000;
+        adjacent[38] = 30; overlap[38] = 30;
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        row[0] = 38; row[1] = reinterpret_cast<DWORD>(&holder);
+        row[12] = reinterpret_cast<DWORD>(adjacent); row[13] = row[12] + sizeof(adjacent);
+        row[16] = reinterpret_cast<DWORD>(overlap); row[17] = row[16] + sizeof(overlap);
+        for (bool expanded : { false, true, false })
+        {
+            SelectedObjectRules rules;
+            CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(row), 0xFFF, rules, expanded));
+            CHECK(rules.weights[0] == (expanded ? 5 : 0));
+            CHECK(rules.weights[1] == (expanded ? 5 : -7));
+            CHECK(rules.weights[2] == 5 && rules.weights[3] == 10);
+            CHECK(rules.weights[9] == -5000);
+            CHECK(rules.adjacent[0] == (expanded ? 5 : -5000));
+            CHECK(rules.adjacent[38] == 30);
+            for (int i = 0; i < 201; ++i) CHECK(rules.overlap[i] == overlap[i]);
+            CHECK(weights[0] == 0 && weights[1] == -7 && weights[9] == 20);
+            CHECK(adjacent[0] == -5000 && row[0] == 38);
+        }
+        SelectedObjectRules grassOnly;
+        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(row), 4, grassOnly, true));
+        CHECK(grassOnly.weights[0] == -5000 && grassOnly.weights[1] == -5000 && grassOnly.weights[2] == 5);
+    }
+
     void TestSelectedRules()
     {
         DWORD source[19] = {};
@@ -144,17 +179,17 @@ namespace
         source[16] = reinterpret_cast<DWORD>(overlap);
         source[17] = source[16] + sizeof(overlap);
         SelectedObjectRules rules;
-        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 0xCFF, rules));
+        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 0xCFF, rules, false));
         for (DWORD i = 0; i < 12; ++i)
             CHECK(rules.weights[i] == ((i == 8 || i == 9) ? -5000 : 5));
         CHECK(rules.adjacent[0] == 5 && rules.overlap[0] == -5000);
         CHECK(weights[0] == -5000 && adjacent[0] == -5000);
         CHECK(rules.row[1] == reinterpret_cast<DWORD>(&rules.weightPointer));
-        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 1u << 4, rules));
+        CHECK(BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 1u << 4, rules, false));
         CHECK(rules.adjacent[0] == -5000);
-        CHECK(!BuildSelectedObjectRules(0, 0xCFF, rules));
+        CHECK(!BuildSelectedObjectRules(0, 0xCFF, rules, false));
         source[13] -= 4;
-        CHECK(!BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 0xCFF, rules));
+        CHECK(!BuildSelectedObjectRules(reinterpret_cast<DWORD>(source), 0xCFF, rules, false));
         source[13] += 4;
         DWORD object[19] = {};
         DWORD candidate[5] = {};
@@ -399,6 +434,28 @@ namespace
         auto allowed = [&]() { return AllowMountainOrder(reinterpret_cast<DWORD>(candidate),
             reinterpret_cast<DWORD>(row), reinterpret_cast<DWORD>(object)); };
         CHECK(allowed());
+        candidate[0] = 8000; other[0] = 8001;
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(candidate), reinterpret_cast<DWORD>("avlmhs00.def"));
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(other), reinterpret_cast<DWORD>("AVLwtf00.def"));
+        s_traceCandidateButton = ObstacleButtonIndexForObjectTemplate(reinterpret_cast<DWORD>(candidate));
+        other[7] = 139; other[8] = 17;
+        for (const char* name : { "AVLwtf00.def", "AVLwtf01.def", "AVLwtf02.def" })
+        {
+            RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(other), reinterpret_cast<DWORD>(name));
+            CHECK(allowed());
+        }
+        other[8] = 18; CHECK(!allowed()); other[8] = 17;
+        overlaps[6] = -5000; CHECK(!allowed()); overlaps[6] = 30;
+        SetObstacleButtonSelection(0, 0, 0, 0); CHECK(!allowed());
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        s_generationFilterMode = 0; CHECK(!allowed());
+        s_generationFilterMode = static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection);
+        s_traceCandidateButton = 0; CHECK(!allowed());
+        s_traceCandidateButton = ObstacleButtonIndexForObjectTemplate(reinterpret_cast<DWORD>(candidate));
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(other), reinterpret_cast<DWORD>("avlmtdr1.def"));
+        CHECK(!allowed());
+        other[7] = 134; CHECK(allowed());
+        s_traceCandidateButton = 0;
         other[7] = 148; CHECK(!allowed()); other[7] = 134;
         candidate[7] = 140; CHECK(!allowed()); candidate[7] = 134;
         candidate[7] = other[7] = 140;
@@ -710,6 +767,7 @@ int main()
     TestButtonSelectionCapacity();
     TestAllTerrainGeneration();
     TestSelectedRules();
+    TestNonPositiveAllTerrainWeights();
     TestParserThunks();
     TestPredicateThunk();
     TestMountainOrder();
