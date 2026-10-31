@@ -170,6 +170,17 @@ Regenerate with:
   native rows take precedence; capture resets each run. This unifies the Wasteland
   group on row 186 without changing source rows or cross-row overlap arrays.
   See docs/fissure-gaps.md for baseline, controls and English/Russian validation.
+- Grass Plants (native 115/0, 122/0, 138/0 with preserved firstTerrain 2) span
+  three rows (52/53/51). Observe selected native parser rows for their button,
+  then promote forbidden private overlap entries only among those captured rows
+  to 30. Preserve positive weights, source rows, row identities and overlap bans
+  against other families. Capture resets each run; Standard bypasses it. Other
+  Undergrowth and Trees are outside this adjustment. See docs/grass-plant-gaps.md.
+- Highlands Outcroppings (136/0 with preserved firstTerrain 10, row 170) use
+  the forbidden-self-overlap private-row policy. Other outcropping terrains and
+  Rocks types are excluded; source/cross-row data, row IDs, footprints, native
+  order checks and Void remain intact. Both terrain-option settings work;
+  Standard bypasses it. See docs/highlands-outcropping-gaps.md.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining

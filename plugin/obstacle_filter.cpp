@@ -738,6 +738,8 @@ namespace
     DWORD s_defaultSelectedRow = 0;
     DWORD s_wastelandFissureRow = 0;
     int s_wastelandFissureButton = -1;
+    bool s_grassPlantRows[kMaxRandTrnRowCount] = {};
+    int s_grassPlantButton = -1;
     bool s_selectedRulesFailureLogged = false;
 
     bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules, bool allTerrains)
@@ -821,6 +823,23 @@ namespace
         return firstTerrain == 0 || firstTerrain == 2 || firstTerrain == 11;
     }
 
+    bool IsGrassPlantRecord(DWORD record, DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0, firstTerrain = 0;
+        return objectTemplate && SafeReadDword(objectTemplate + 28, type) &&
+            (type == 115 || type == 122 || type == 138) &&
+            SafeReadDword(objectTemplate + 32, subtype) && subtype == 0 &&
+            record && SafeReadDword(record + 4, firstTerrain) && firstTerrain == 2;
+    }
+
+    bool IsHighlandsOutcroppingRecord(DWORD record, DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0, firstTerrain = 0;
+        return objectTemplate && SafeReadDword(objectTemplate + 28, type) && type == 136 &&
+            SafeReadDword(objectTemplate + 32, subtype) && subtype == 0 &&
+            record && SafeReadDword(record + 4, firstTerrain) && firstTerrain == 10;
+    }
+
     bool IsDuneFillerTemplate(DWORD objectTemplate)
     {
         DWORD type = 0, subtype = 0;
@@ -860,8 +879,10 @@ namespace
         if (!SafeReadDword(record + 0x10, native)) return false;
         // A workbook-mapped native object can have no RandTrn subtype row
         // (for example Maple Trees, 140/12). Repair only missing rows here.
+        const bool grassPlant = IsGrassPlantRecord(record, objectTemplate);
         bool restrictedOverlap = IsLakeOrCraterTemplate(objectTemplate) ||
-            IsAffectedFissureRecord(record, objectTemplate);
+            IsAffectedFissureRecord(record, objectTemplate) ||
+            IsHighlandsOutcroppingRecord(record, objectTemplate);
         if (restrictedOverlap && native)
         {
             DWORD rowId = 0, overlaps = 0, weight = 0;
@@ -872,7 +893,7 @@ namespace
         }
         const bool selfOverlap = IsSandDuneTemplate(objectTemplate) ||
             IsSnowHillTemplate(objectTemplate) || restrictedOverlap;
-        if (!s_generationAllTerrains && !custom && native && !selfOverlap) return true;
+        if (!s_generationAllTerrains && !custom && native && !selfOverlap && !grassPlant) return true;
         auto found = s_selectedObjectRules.find(objectTemplate);
         if (found == s_selectedObjectRules.end())
         {
@@ -904,6 +925,13 @@ namespace
             // a private row, using the same self-overlap weight as mountains.
             if (selfOverlap && (!restrictedOverlap || found->second.overlap[found->second.row[0]] <= -5000))
                 found->second.overlap[found->second.row[0]] = 30;
+            if (grassPlant && buttonIndex == s_grassPlantButton)
+            {
+                // Permit only the rows observed for this selected plant group.
+                for (DWORD i = 0; i < kMaxRandTrnRowCount; ++i)
+                    if (s_grassPlantRows[i] && found->second.overlap[i] <= -5000)
+                        found->second.overlap[i] = 30;
+            }
             if (s_selectedObjectRules.size() <= 12)
                 LogFormat("Obstacle variants: private selected-object rules button=%s mask=%03lX sourceRow=%lu fallback=%d",
                     button->name, s_generationAllTerrains ? kAllObstacleTerrainMask : mask & button->terrainMask, found->second.row[0], !native && !ObstacleBorrowedRowForObjectTemplate(objectTemplate));
@@ -1029,6 +1057,13 @@ namespace
             if (SafeReadDword(wrapper, objectTemplate) && objectTemplate)
             {
                 ObserveObstacleBorrowSourceRow(objectTemplate, rowRecord);
+                const int plantButton = ObstacleButtonIndexForObjectTemplate(objectTemplate);
+                if (SafeReadDword(rowRecord, rowId) && rowId < kMaxRandTrnRowCount &&
+                    IsGrassPlantRecord(wrapper, objectTemplate) && IsObstacleButtonSelected(plantButton))
+                {
+                    s_grassPlantRows[rowId] = true;
+                    s_grassPlantButton = plantButton;
+                }
                 DWORD type = 0, firstTerrain = 0;
                 const int button = ObstacleButtonIndexForObjectTemplate(objectTemplate);
                 if (SafeReadDword(rowRecord, rowId) && rowId < kMaxRandTrnRowCount &&
@@ -1831,6 +1866,8 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         s_defaultSelectedRow = 0;
         s_wastelandFissureRow = 0;
         s_wastelandFissureButton = -1;
+        ZeroMemory(s_grassPlantRows, sizeof(s_grassPlantRows));
+        s_grassPlantButton = -1;
         s_selectedRulesFailureLogged = false;
         ClearVariantTraceRows();
     }

@@ -298,6 +298,15 @@ namespace
     {
         struct OverlapCase { const char* def; DWORD type, subtype, terrain, row; int overlap; bool adjust = true; };
         const OverlapCase cases[] = {
+            { "avloc1d0.def", 136, 0, 0, 7, 30, false },
+            { "avloc1g0.def", 136, 0, 2, 39, 30, false },
+            { "avlo1sn0.def", 136, 0, 3, 57, 10, false },
+            { "avloc1r0.def", 136, 0, 5, 89, 10, false },
+            { "avloc1u0.def", 136, 0, 6, 107, 0, false },
+            { "avlvotr0.def", 136, 0, 7, 200, 10, false },
+            { "avlhitr0.def", 136, 0, 10, 170, -5000 },
+            { "avlhitr1.def", 136, 0, 10, 170, -5000 },
+            { "avlhitr2.def", 136, 0, 10, 170, -5000 },
             { "avlct1d0.def", 139, 29, 0, 17, -5000 },
             { "avlct1g0.def", 139, 29, 2, 50, -5000 },
             { "avlwcr04.def", 117, 0, 11, 186, -5000 },
@@ -438,6 +447,89 @@ namespace
         SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
         observe(); CHECK(!s_wastelandFissureRow);
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrapper)) && wrapper[4] == 0);
+    }
+
+    void TestGrassPlantRules()
+    {
+        DWORD sources[3][19] = {}, objects[3][19] = {}, wrappers[3][5] = {};
+        int weights[3][12], adjacent[3][201], overlap[3][201];
+        DWORD holders[3] = {};
+        const DWORD rowIds[] = { 52, 53, 51 }, types[] = { 115, 122, 138 };
+        const char* names[] = { "avlsh3g0.def", "avlsh1g0.def", "avlsh6g0.def" };
+        for (int i = 0; i < 3; ++i)
+        {
+            for (int& value : weights[i]) value = -5000;
+            weights[i][2] = 5;
+            for (int& value : adjacent[i]) value = 5;
+            for (int& value : overlap[i]) value = -5000;
+            holders[i] = reinterpret_cast<DWORD>(weights[i]);
+            sources[i][0] = rowIds[i]; sources[i][1] = reinterpret_cast<DWORD>(&holders[i]);
+            sources[i][12] = reinterpret_cast<DWORD>(adjacent[i]); sources[i][13] = sources[i][12] + sizeof(adjacent[i]);
+            sources[i][16] = reinterpret_cast<DWORD>(overlap[i]); sources[i][17] = sources[i][16] + sizeof(overlap[i]);
+            objects[i][0] = 8012 + i; objects[i][7] = types[i]; objects[i][6] = 4;
+            wrappers[i][0] = reinterpret_cast<DWORD>(objects[i]); wrappers[i][1] = 2;
+            RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(objects[i]), reinterpret_cast<DWORD>(names[i]));
+        }
+        overlap[0][53] = 10; // Existing positive in-group weights must be retained.
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        auto observe = [&](int i) { ObserveHotaParserWrapperRow(reinterpret_cast<DWORD>(wrappers[i]), reinterpret_cast<DWORD>(sources[i])); };
+        for (bool allTerrains : { false, true, false })
+        {
+            SetAllObstacleTerrains(allTerrains);
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+            CHECK(s_grassPlantButton == -1);
+            for (bool captured : s_grassPlantRows) CHECK(!captured);
+            wrappers[0][1] = 0; observe(0); CHECK(!s_grassPlantRows[52]); wrappers[0][1] = 2;
+            objects[0][8] = 1; observe(0); CHECK(!s_grassPlantRows[52]); objects[0][8] = 0;
+            SetObstacleButtonSelection(0, 0, 0, 0); observe(0); CHECK(!s_grassPlantRows[52]);
+            SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+            for (int i = 0; i < 3; ++i) { wrappers[i][4] = reinterpret_cast<DWORD>(sources[i]); observe(i); }
+            for (int i = 0; i < 3; ++i)
+            {
+                CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrappers[i])));
+                const auto& rules = s_selectedObjectRules.at(reinterpret_cast<DWORD>(objects[i]));
+                CHECK(rules.row[0] == rowIds[i] && wrappers[i][1] == 2);
+                for (DWORD j = 0; j < 201; ++j)
+                {
+                    const bool inGroup = j == 51 || j == 52 || j == 53;
+                    CHECK(rules.overlap[j] == (inGroup && overlap[i][j] <= -5000 ? 30 : overlap[i][j]));
+                    CHECK(overlap[i][j] == (i == 0 && j == 53 ? 10 : -5000));
+                }
+                for (int terrain = 0; terrain < 12; ++terrain)
+                    CHECK(rules.weights[terrain] == (terrain != 9 && (allTerrains || terrain == 2) ? 5 : -5000));
+                CHECK(weights[i][2] == 5 && weights[i][9] == -5000);
+            }
+        }
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        for (int i = 0; i < 3; ++i) { wrappers[i][4] = reinterpret_cast<DWORD>(sources[i]); observe(i); }
+        s_grassPlantButton = 0;
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrappers[0])));
+        const auto& isolated = s_selectedObjectRules.at(reinterpret_cast<DWORD>(objects[0]));
+        CHECK(isolated.overlap[51] == -5000 && isolated.overlap[52] == -5000);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        for (bool captured : s_grassPlantRows) CHECK(!captured);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        observe(0); CHECK(!s_grassPlantRows[52]);
+        wrappers[0][4] = reinterpret_cast<DWORD>(sources[0]);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(wrappers[0])));
+        CHECK(wrappers[0][4] == reinterpret_cast<DWORD>(sources[0]));
+    }
+
+    void TestOutcroppingScope()
+    {
+        DWORD object[19] = {}, wrapper[5] = {};
+        object[7] = 136; object[8] = 0; object[5] = object[6] = 0xDFF;
+        for (DWORD terrain = 0; terrain < 12; ++terrain)
+        {
+            wrapper[1] = terrain;
+            CHECK(IsHighlandsOutcroppingRecord(reinterpret_cast<DWORD>(wrapper),
+                reinterpret_cast<DWORD>(object)) == (terrain == 10));
+        }
+        wrapper[1] = 10;
+        object[8] = 1; CHECK(!IsHighlandsOutcroppingRecord(reinterpret_cast<DWORD>(wrapper), reinterpret_cast<DWORD>(object)));
+        object[8] = 0; object[7] = 135;
+        CHECK(!IsHighlandsOutcroppingRecord(reinterpret_cast<DWORD>(wrapper), reinterpret_cast<DWORD>(object)));
+        CHECK(!IsHighlandsOutcroppingRecord(0, reinterpret_cast<DWORD>(object)));
     }
 
     DWORD s_fillAttemptMask = 0;
@@ -1074,6 +1166,8 @@ int main()
     TestSnowHillRules();
     TestRestrictedOverlapRules();
     TestWastelandFissureFallback();
+    TestGrassPlantRules();
+    TestOutcroppingScope();
     TestNonPositiveAllTerrainWeights();
     TestParserThunks();
     TestPredicateThunk();

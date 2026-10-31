@@ -167,3 +167,15 @@ working families' overlap bans. Wasteland fallback tests cover all three missing
 DEFs, selected/same-button/native-terrain capture, rejected donors, off/on/off,
 source/cross-row preservation, native firstTerrain, run reset and Standard bypass.
 See [the fissure gap notes](../docs/fissure-gaps.md) for native comparisons.
+
+Grass Plant tests cover the captured three-row overlap matrix, native terrain/type/
+subtype/selection gates, same-button matching, preserved positive/source/unrelated
+weights and row IDs, all-terrain off/on/off, Void, run reset and Standard bypass.
+Native English/Russian, Grass-only and fifteen-button Undergrowth controls are in
+[the Grass Plant notes](../docs/grass-plant-gaps.md).
+
+Highlands Outcropping tests cover all three DEFs, the six other outcropping
+terrains, the full native firstTerrain/type/subtype scope, all-terrain off/on/off,
+preserved source/cross-row data and row IDs, Void, selection and Standard bypass.
+Native English/Russian and fifteen-button Rocks controls are in
+[the Highlands Outcropping notes](../docs/highlands-outcropping-gaps.md).
