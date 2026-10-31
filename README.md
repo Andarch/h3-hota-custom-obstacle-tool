@@ -83,7 +83,9 @@ files. The tool does not overwrite original game executables, DLLs, or data tabl
   changed before or after painting. Availability and hover previews reflect the
   option. It affects subsequent generation, not objects already placed.
 - **Selections and category expansion remembered within the session**, including
-  when switching modes or leaving and reopening the obstacle tool.
+  when switching modes or leaving and reopening the obstacle tool.  
+- **Supports English and Russian**, with the language of the editor automatically
+  detected.
 
 ## Using Custom mode
 
