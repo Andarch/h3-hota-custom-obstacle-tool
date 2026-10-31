@@ -1,5 +1,9 @@
 # Grass Mountains on Dirt: zero terrain weights
 
+This records the original all-terrain fix. The later
+[workbook terrain policy](workbook-terrain-rules.md) extends positive allowed
+weights to ordinary Custom runs and enforces per-DEF workbook masks.
+
 ## Cause
 
 Runtime verified on the supported HotA 1.8.1 builds: all three Grass Mountains
@@ -16,11 +20,13 @@ on, while native Grass placement still worked.
 
 ## Fix
 
-Pass the captured run's all-terrain flag explicitly into private-rule creation.
+The original fix passed the captured run's all-terrain flag into private-rule creation.
 For an all-terrain run, promote allowed weights <= 0 to 5, and count these cases
 as terrain expansion for the existing adjacency policy. Preserve positive weights.
 
-Ordinary Custom scoring retains its previous treatment of zero/soft negatives.
+At that stage, ordinary Custom retained zero/soft negatives. The later workbook
+terrain fix supersedes this restriction; allowed nonpositive weights now become 5
+in all Custom runs.
 Void remains -5000 regardless of the source weight or requested mask. Native
 row IDs, template firstTerrain matching, overlap arrays, footprints and collision
 checks are unchanged. Only generation-private scoring rows are modified; source

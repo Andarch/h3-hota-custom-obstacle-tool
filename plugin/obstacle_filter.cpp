@@ -91,7 +91,7 @@ namespace
     volatile LONG s_customObstacleMode = 0;
     volatile LONG s_allObstacleTerrains = 0;
     bool s_generationAllTerrains = false;
-    bool s_allTerrainTemplateFailure = false;
+    bool s_templateTerrainFailure = false;
     volatile LONG s_selectedButtonMaskLow = 0;
     volatile LONG s_selectedButtonMaskHigh = 0;
     volatile LONG s_selectedButtonMaskExtended = 0;
@@ -746,7 +746,7 @@ namespace
     int s_grassPlantButton = -1;
     bool s_selectedRulesFailureLogged = false;
 
-    bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules, bool allTerrains)
+    bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules)
     {
         DWORD holder = 0, weights = 0;
         if (!source || !SafeReadDword(source + 4, holder) ||
@@ -763,9 +763,9 @@ namespace
             const int nativeWeight = static_cast<int>(value);
             const bool allowed = terrain != 9 && (mask & (1u << terrain)) != 0;
             // The native scorer requires a positive actual-terrain weight.
-            // Zero and soft negative weights can still prevent placement even
-            // after the template mask permits the terrain (Grass Mountains/Dirt).
-            const bool promoteWeight = nativeWeight <= -4000 || (allTerrains && nativeWeight <= 0);
+            // A workbook-allowed terrain must remain usable even when the
+            // native row has a zero, soft negative or forbidden weight.
+            const bool promoteWeight = nativeWeight <= 0;
             expanded |= allowed && promoteWeight;
             rules.weights[terrain] = allowed ? (promoteWeight ? 5 : nativeWeight) : -5000;
         }
@@ -836,6 +836,15 @@ namespace
             record && SafeReadDword(record + 4, firstTerrain) && firstTerrain == 2;
     }
 
+    bool IsHighlandsGrassFlowerRecord(DWORD record, DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0, firstTerrain = 0;
+        return objectTemplate && SafeReadDword(objectTemplate + 28, type) && type == 120 &&
+            SafeReadDword(objectTemplate + 32, subtype) && subtype == 0 &&
+            record && SafeReadDword(record + 4, firstTerrain) && firstTerrain == 2 &&
+            (ObstacleTerrainMaskForObjectTemplate(objectTemplate) & (1u << 10)) != 0;
+    }
+
     bool IsHighlandsOutcroppingRecord(DWORD record, DWORD objectTemplate)
     {
         DWORD type = 0, subtype = 0, firstTerrain = 0;
@@ -899,12 +908,6 @@ namespace
 
     bool ApplySelectedObjectRules(DWORD record, DWORD objectTemplate, int buttonIndex)
     {
-        bool custom = false;
-        for (DWORD i = 0; i < ObstacleTemplateOverrideCount(); ++i)
-        {
-            const auto* item = ObstacleTemplateOverrideAt(i);
-            if (item && item->buttonIndex == buttonIndex) { custom = true; break; }
-        }
         DWORD native = 0;
         if (!SafeReadDword(record + 0x10, native)) return false;
         // A workbook-mapped native object can have no RandTrn subtype row
@@ -912,7 +915,8 @@ namespace
         const bool grassPlant = IsGrassPlantRecord(record, objectTemplate);
         bool restrictedOverlap = IsLakeOrCraterTemplate(objectTemplate) ||
             IsAffectedFissureRecord(record, objectTemplate) ||
-            IsHighlandsOutcroppingRecord(record, objectTemplate);
+            IsHighlandsOutcroppingRecord(record, objectTemplate) ||
+            IsHighlandsGrassFlowerRecord(record, objectTemplate);
         if (restrictedOverlap && native)
         {
             DWORD rowId = 0, overlaps = 0, weight = 0;
@@ -923,13 +927,12 @@ namespace
         }
         const bool selfOverlap = IsSandDuneTemplate(objectTemplate) ||
             IsSnowHillTemplate(objectTemplate) || restrictedOverlap;
-        if (!s_generationAllTerrains && !custom && native && !selfOverlap && !grassPlant) return true;
         auto found = s_selectedObjectRules.find(objectTemplate);
         if (found == s_selectedObjectRules.end())
         {
             DWORD source = ObstacleBorrowedRowForObjectTemplate(objectTemplate);
-            DWORD mask = 0;
-            if (!SafeReadDword(objectTemplate + 0x18, mask)) return false;
+            const DWORD mask = ObstacleTerrainMaskForObjectTemplate(objectTemplate);
+            if (!mask) return false;
             DWORD firstTerrain = 0;
             if (!source && !native && s_wastelandFissureRow &&
                 buttonIndex == s_wastelandFissureButton &&
@@ -941,7 +944,7 @@ namespace
             if (!button) return false;
             auto inserted = s_selectedObjectRules.emplace(objectTemplate, SelectedObjectRules{});
             found = inserted.first;
-            if (!BuildSelectedObjectRules(source, s_generationAllTerrains ? kAllObstacleTerrainMask : mask & button->terrainMask, found->second, s_generationAllTerrains))
+            if (!BuildSelectedObjectRules(source, s_generationAllTerrains ? kAllObstacleTerrainMask : mask & button->terrainMask, found->second))
             {
                 s_selectedObjectRules.erase(found);
                 if (!s_selectedRulesFailureLogged)
@@ -975,7 +978,7 @@ namespace
             InterlockedCompareExchange(&s_generationFilterMode, 0, 0));
         if (mode == ObstacleGenerationFilterMode::None)
             return true;
-        if (s_generationAllTerrains && s_allTerrainTemplateFailure) return false;
+        if (s_templateTerrainFailure) return false;
 
         DWORD objectTemplate = 0;
         if (!SafeReadDword(record, objectTemplate))
@@ -1117,17 +1120,21 @@ namespace
 
     }
 
-    bool ExpandSelectedTemplateTerrains(DWORD objectTemplate)
+    bool ApplySelectedTemplateTerrains(DWORD objectTemplate)
     {
-        if (!s_generationAllTerrains ||
-            s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection)) return true;
-        if (!IsObstacleButtonSelected(ObstacleButtonIndexForObjectTemplate(objectTemplate)) &&
-            !IsRequestedDuneFiller(objectTemplate) &&
+        if (s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection)) return true;
+        const int index = ObstacleButtonIndexForObjectTemplate(objectTemplate);
+        if (!IsObstacleButtonSelected(index) && !IsRequestedDuneFiller(objectTemplate) &&
             !IsRequestedRoughLakeFiller(objectTemplate)) return true;
-        // The generator loads its own template records; never change editor/map caches.
-        // Keep wrapper firstTerrain intact: native RandTrn matching has already finished.
-        return SafeWriteDword(objectTemplate + 0x14, kAllObstacleTerrainMask) &&
-            SafeWriteDword(objectTemplate + 0x18, kAllObstacleTerrainMask);
+        const auto* button = ObstacleButtonDefinitionAt(index);
+        if (!button) return false;
+        const DWORD mask = s_generationAllTerrains ? kAllObstacleTerrainMask :
+            ObstacleTerrainMaskForObjectTemplate(objectTemplate) & button->terrainMask;
+        if (!mask) return false;
+        // Native firstTerrain/row matching has already finished. Only this
+        // generator's templates change; keep workbook masks authoritative.
+        return SafeWriteDword(objectTemplate + 0x14, mask) &&
+            SafeWriteDword(objectTemplate + 0x18, mask);
     }
 
     void __stdcall ApplyExtraObjectRandTrnFallback(DWORD wrapper)
@@ -1142,10 +1149,10 @@ namespace
                 return;
             const DWORD sourceRowRecord =
                 ObstacleBorrowedRowForObjectTemplate(objectTemplate);
-            if (!ExpandSelectedTemplateTerrains(objectTemplate))
+            if (!ApplySelectedTemplateTerrains(objectTemplate))
             {
-                s_allTerrainTemplateFailure = true;
-                LogMessage("Allow all terrains: could not expand generation template masks; placement will be rejected.");
+                s_templateTerrainFailure = true;
+                LogMessage("Obstacle terrains: could not apply generation template masks; placement will be rejected.");
                 return;
             }
             DWORD existingRow = 0;
@@ -1949,7 +1956,7 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
     }
 
     s_generationAllTerrains = mode == ObstacleGenerationFilterMode::ButtonSelection && AllObstacleTerrainsEnabled();
-    s_allTerrainTemplateFailure = false;
+    s_templateTerrainFailure = false;
     InterlockedExchange(&s_generationFilterMode, static_cast<LONG>(mode));
 }
 

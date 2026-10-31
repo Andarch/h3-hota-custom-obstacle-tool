@@ -35,6 +35,7 @@ const ObstacleButtonDefinition* ObstacleButtonDefinitionAt(int buttonIndex);
 const char* ObstacleButtonName(int buttonIndex);
 void __stdcall RegisterObstacleButtonDefName(DWORD objectTemplate, DWORD editorString);
 int ObstacleButtonIndexForObjectTemplate(DWORD objectTemplate);
+DWORD ObstacleTerrainMaskForObjectTemplate(DWORD objectTemplate);
 void ObserveObstacleBorrowSourceRow(DWORD objectTemplate, DWORD rowRecord);
 DWORD ObstacleBorrowedRowForObjectTemplate(DWORD objectTemplate);
 void ResetObstacleBorrowedRows();

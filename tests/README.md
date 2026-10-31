@@ -121,8 +121,8 @@ arrays, parent-approved terrain-edge handling only during the filler pass, and
 Standard-mode bypass. Native saved-terrain reproduction evidence is recorded in
 [the dune gap-fill notes](../docs/dune-all-terrain-gap-fill.md).
 
-Nonpositive all-terrain scoring regressions cover native zero and soft-negative
-weights, preserved positive weights, unchanged ordinary Custom behavior, expanded
+Custom scoring regressions cover native zero and soft-negative
+weights, preserved positive weights, workbook masks with the option off, expanded
 adjacency handling, preserved source/overlap arrays and row IDs, explicit terrain
 masks, and Void rejection even with a positive native Void weight. Native Grass
 Mountains 1/2/3 off/on/off and saved-terrain evidence is in
@@ -194,3 +194,24 @@ fully passable definitions in both modes; tests cover invalid definitions and
 blocked bits in both halves of the 48-bit mask. Native checks exercise all 880
 supported DEFs on twelve terrains in Standard/Custom/Standard order. See
 [the full minimap audit](../docs/minimap-color-audit.md).
+
+
+Workbook terrain regressions cover per-DEF masks (including different masks within
+one button), off/on/off runs, untouched native firstTerrain, unknown DEFs and
+Standard bypass. Run the generator parsing tests without Excel or game data:
+
+```powershell
+python tests/test_obstacle_metadata.py
+```
+
+Native Release validation checked all 121 buttons individually across all 12
+terrains, auditing blocked cells against each DEF mask. The reported groups also
+passed English/Russian off/on runs and mixed-terrain controls. See
+[workbook terrain rules](../docs/workbook-terrain-rules.md).
+
+Grass Flowers Highlands regressions cover the Highlands-enabled variant's
+forbidden self-overlap, unchanged permitted weights and Grass-only/Dirt flower
+controls, all twelve native firstTerrain values with expanded template masks,
+wrong type/subtype, off/on/off, selection and Standard bypass. Native English
+and Russian Grass/Highlands controls are recorded in
+[the flower gap notes](../docs/grass-flower-highlands-gaps.md).

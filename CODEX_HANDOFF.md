@@ -105,9 +105,11 @@ Regenerate with:
 ```
 
 - Generator validation covers layout, masks, unique mappings, hash collisions,
-  native ID/SubID matching, donor presence and icon/preview ownership. A category
+  native ID/SubID matching, donor presence and icon/preview ownership. Every DEF
+  retains its workbook Random Mask, including native rows without overlays; masks
+  must be nonempty, exclude Void and fit within their button mask. A category
   and its button may share a name. The workbook currently needs no normalization.
-- 28 minimal derived template rows and 12 borrowed sources are committed. Rows
+- 23 minimal derived template rows and 12 borrowed sources are committed. Rows
   derive from matching HotA 1.8.1 edobjts entries with requested random masks;
   full extracted tables, DEFs and LOD archives must not be committed.
 - Four DWORDs support up to 128 selections; generator and compile-time guards
@@ -115,20 +117,27 @@ Regenerate with:
 
 ## Generation behavior to preserve
 
-- Custom filters the native generator by selected button. Native rows are reused
-  unless a mapped object requires an override, borrowing, missing-row fallback,
-  dune adjustment or the all-terrain option. Missing rows (for example Maples)
+- Custom filters the native generator by selected button. Selected main-pass
+  candidates always use private scoring rows so workbook terrains cannot be
+  overridden by native terrain weights. Missing rows (for example Maples)
   can use captured native dirt-rock row 9. Preserve the workbook donor mappings.
 - Selected custom templates use a temporary objects overlay read by the native
   loader. Original game files are not changed; the temporary file is cleaned up.
 - Private scoring rows copy native row IDs, weights, adjacency and overlap arrays.
-  All-terrain runs promote every allowed nonpositive terrain weight to 5, preserving
-  existing positive weights. Zero/soft negative weights otherwise fail the native
-  scorer's positive-terrain gate (Grass Mountains 1/2/3 on Dirt, shared row 38).
-  Ordinary Custom runs retain their existing zero/soft-negative scoring behavior.
+  All Custom runs promote every allowed nonpositive terrain weight to 5, preserving
+  existing positive weights. With Allow all terrains off, each DEF uses its own
+  workbook mask intersected with its button mask; forbidden weights become -5000.
+  Generator-owned allowed/random masks follow the same policy after native row
+  matching. With the option on, the effective mask is DFF (all except Void).
   Expanded-terrain adjacency handling is reused; Void remains excluded. Overlap
   entries are preserved except for the family-specific self-overlap fixes below.
-  See docs/all-terrain-zero-weights.md for reproduction and validation.
+  See docs/workbook-terrain-rules.md for current policy and validation;
+  docs/all-terrain-zero-weights.md records the earlier all-terrain fix.
+- Grass Flowers: only the type 120/0 variant with preserved firstTerrain 2 and
+  a per-DEF Highlands bit (AVLf07g0.def) permits forbidden private self-overlap
+  at 30. This fills Highlands gaps without enabling Grass-only variants there.
+  Other flower and cross-row rules are preserved. See
+  docs/grass-flower-highlands-gaps.md for native scoring evidence and validation.
 - Terrain-transition fix: eligible selected candidates use actual footprint terrains,
   rather than extra Dirt/Sand implied solely by transition artwork. Preserve actual
   terrain masks, tile flags, footprint checks and native collision handling.

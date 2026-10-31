@@ -52,6 +52,7 @@ class DefMetadata:
     def_hash: int
     button_index: int
     borrow_source_hash: int | None
+    terrain_mask: int
 
 
 @dataclass(frozen=True)
@@ -410,11 +411,18 @@ def parse_obstacles(
                 raise ValueError(f"Obstacles row {row_number}: Leveraged RandTrn is required")
             borrow_source_hash = fnv1a_32(normalize_def_name(leveraged))
 
+        random_mask = row_value(row, headers, "Random Mask")
+        if not re.fullmatch(r"[01]{12}", random_mask):
+            raise ValueError(f"Obstacles row {row_number}: invalid Random Mask {random_mask!r}")
+        terrain_mask = int(random_mask, 2)
+        if not terrain_mask or terrain_mask & (1 << TERRAIN_BITS["RCK"]):
+            raise ValueError(f"Obstacles row {row_number}: empty or Void-enabled terrain mask")
         metadata = DefMetadata(
             def_name=def_name,
             def_hash=fnv1a_32(def_name),
             button_index=button_indexes[button],
             borrow_source_hash=borrow_source_hash,
+            terrain_mask=terrain_mask,
         )
         existing = by_def.get(def_name)
         if existing and existing != metadata:
@@ -427,10 +435,6 @@ def parse_obstacles(
 
         object_id = parse_int(row_value(row, headers, "ID"), f"Obstacles row {row_number} ID")
         subtype = parse_int(row_value(row, headers, "SubID"), f"Obstacles row {row_number} SubID")
-        random_mask = row_value(row, headers, "Random Mask")
-        if not re.fullmatch(r"[01]{12}", random_mask):
-            raise ValueError(f"Obstacles row {row_number}: invalid Random Mask {random_mask!r}")
-
         candidates = [
             fields
             for fields in edobjts_rows.get(def_name, [])
@@ -544,6 +548,7 @@ def render_header(button_count: int, category_count: int) -> str:
         const char* ObstacleButtonName(int buttonIndex);
         void __stdcall RegisterObstacleButtonDefName(DWORD objectTemplate, DWORD editorString);
         int ObstacleButtonIndexForObjectTemplate(DWORD objectTemplate);
+        DWORD ObstacleTerrainMaskForObjectTemplate(DWORD objectTemplate);
         void ObserveObstacleBorrowSourceRow(DWORD objectTemplate, DWORD rowRecord);
         DWORD ObstacleBorrowedRowForObjectTemplate(DWORD objectTemplate);
         void ResetObstacleBorrowedRows();
@@ -583,7 +588,7 @@ def render_source(
         )
     metadata_rows = [
         f"        {{ 0x{item.def_hash:08X}u, {item.button_index}, "
-        f"{borrow_indexes[item.borrow_source_hash] if item.borrow_source_hash is not None else -1} }},"
+        f"{borrow_indexes[item.borrow_source_hash] if item.borrow_source_hash is not None else -1}, 0x{item.terrain_mask:03X}u }},"
         for item in metadata
     ]
     borrow_rows = [f"        0x{value:08X}u," for value in borrow_hashes]
@@ -606,6 +611,7 @@ def render_source(
             "        DWORD defNameHash;",
             "        BYTE buttonIndex;",
             "        signed char borrowSourceIndex;",
+            "        WORD terrainMask;",
             "    };",
             "",
             "    constexpr ObstacleButtonDefinition kObstacleButtons[] =",
@@ -776,6 +782,12 @@ def render_source(
             "    return metadata ? metadata->buttonIndex : -1;",
             "}",
             "",
+            "DWORD ObstacleTerrainMaskForObjectTemplate(DWORD objectTemplate)",
+            "{",
+            "    const ObstacleDefMetadata* metadata = MetadataForObjectTemplate(objectTemplate);",
+            "    return metadata ? metadata->terrainMask : 0;",
+            "}",
+            "",
             "void ObserveObstacleBorrowSourceRow(DWORD objectTemplate, DWORD rowRecord)",
             "{",
             "    if (!rowRecord)",
@@ -845,6 +857,9 @@ def main() -> int:
         sheets["Obstacles"], button_indexes, edobjts_rows
     )
     validate_button_visual_defs(buttons, metadata)
+    for item in metadata:
+        if item.terrain_mask & ~buttons[item.button_index].terrain_mask:
+            raise ValueError(f"{item.def_name}: DEF terrains exceed the button terrain mask")
 
     args.header.write_text(
         render_header(len(buttons), len(layout_categories)), encoding="ascii", newline="\n"
