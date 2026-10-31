@@ -44,7 +44,7 @@ Last updated: 2026-10-31
   Mode radio widths account for translated text. Russian phrasing awaits tester review.
 - Help > About Custom Obstacle Tool... is available in both modes, after the
   existing native About item. The owner-thread menu subclass opens a centered
-  modal native dialog with v0.9.1, build configuration, author Andarch, description,
+  modal native dialog with v0.9.2, build configuration, author Andarch, description,
   GitHub repository link and OK. Escape closes it. The compact dialog is
   250x128 dialog units, with version and build on one row and 10-unit side margins.
   A private activation context enables the SysLink control independently of the
@@ -53,7 +53,7 @@ Last updated: 2026-10-31
   The subclass delegates first, then enables only the tool's About command, leaving
   native command states intact. Startup/direct WM_COMMAND tests alone miss this.
 - `resources/version.h` defines the shared dialog/product version and binary
-  metadata. EXE and DLL have numeric file version 0.9.1.0 and product version v0.9.1.
+  metadata. EXE and DLL have numeric file version 0.9.2.0 and product version v0.9.2.
   `resources/version.rc` is compiled into both; `plugin/about.rc` holds the dialog.
 
 - Standard is the startup mode: native generation, enablement and minimap colors;

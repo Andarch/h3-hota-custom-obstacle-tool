@@ -31,7 +31,7 @@ namespace
 #else
         foundBuild |= wcscmp(text, UiText("Release Build")) == 0;
 #endif
-        foundVersion |= wcscmp(text, L"v0.9.1") == 0;
+        foundVersion |= wcscmp(text, L"v0.9.2") == 0;
         foundAuthor |= wcscmp(text, UiText("By Andarch")) == 0;
         foundDescription |= wcscmp(text,
             UiText("Customizable obstacle generation for the HotA Map Editor")) == 0;

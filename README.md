@@ -2,7 +2,7 @@
 
 Customizable obstacle generation for the HotA Map Editor
 
-**Version:** v0.9.1 · **Author:** Andarch
+**Version:** v0.9.2 · **Author:** Andarch
 
 Supports HotA 1.8.1 in English and Russian.
 
