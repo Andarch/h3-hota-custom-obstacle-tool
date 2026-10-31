@@ -155,6 +155,12 @@ Regenerate with:
   entries, source rows, drawing-order checks, footprints and Void remain unchanged.
   Selected Custom runs support both terrain-option settings; Standard bypasses it.
   See docs/lake-gaps.md for the eleven-family native controls and row IDs.
+- Craters (type 118/subtype 0 and the Sand Craters type-149/subtype-0 variant)
+  reuse the forbidden-self-overlap private-row policy. Preserve Snow Craters'
+  positive overlap weight 10 from the existing fallback row 9. Other crater rows
+  change only their private self-overlap entry to 30. Native cross-row bans,
+  footprints, drawing-order, paint and Void checks remain; Standard bypasses it.
+  See docs/crater-gaps.md for all eight controls and Sand's two scoring rows.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining

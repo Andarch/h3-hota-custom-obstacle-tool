@@ -294,10 +294,19 @@ namespace
         SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
     }
 
-    void TestLakeRules()
+    void TestLakeAndCraterRules()
     {
-        struct LakeCase { const char* def; DWORD type, subtype, terrain, row; int overlap; };
-        const LakeCase cases[] = {
+        struct OverlapCase { const char* def; DWORD type, subtype, terrain, row; int overlap; };
+        const OverlapCase cases[] = {
+            { "avlctrd0.def", 118, 0, 0, 1, -5000 },
+            { "avlctrg0.def", 118, 0, 2, 33, -5000 },
+            { "avlctsn0.def", 118, 0, 3, 9, 10 },
+            { "avlctrs0.def", 118, 0, 4, 65, -5000 },
+            { "avlctrr0.def", 118, 0, 5, 86, -5000 },
+            { "avlctrl0.def", 118, 0, 7, 115, -5000 },
+            { "avlcthl0.def", 118, 0, 10, 169, -5000 },
+            { "avlctds0.def", 118, 0, 1, 20, -5000 },
+            { "avlspit0.def", 149, 0, 1, 25, -5000 },
             { "avllk1d0.def", 126, 0, 0, 4, -5000 },
             { "avllk1g0.def", 126, 0, 2, 36, -5000 },
             { "avlflk10.def", 121, 0, 3, 55, -5000 },
@@ -361,9 +370,11 @@ namespace
             SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
         }
         DWORD unrelated[19] = {};
-        unrelated[7] = 126; unrelated[8] = 1; CHECK(!IsLakeTemplate(reinterpret_cast<DWORD>(unrelated)));
-        unrelated[7] = 140; unrelated[8] = 3; CHECK(!IsLakeTemplate(reinterpret_cast<DWORD>(unrelated)));
-        unrelated[8] = 5; CHECK(!IsLakeTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[7] = 126; unrelated[8] = 1; CHECK(!IsLakeOrCraterTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[7] = 118; CHECK(!IsLakeOrCraterTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[7] = 149; CHECK(!IsLakeOrCraterTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[7] = 140; unrelated[8] = 3; CHECK(!IsLakeOrCraterTemplate(reinterpret_cast<DWORD>(unrelated)));
+        unrelated[8] = 5; CHECK(!IsLakeOrCraterTemplate(reinterpret_cast<DWORD>(unrelated)));
     }
 
     DWORD s_fillAttemptMask = 0;
@@ -998,7 +1009,7 @@ int main()
     TestAllTerrainGeneration();
     TestSelectedRules();
     TestSnowHillRules();
-    TestLakeRules();
+    TestLakeAndCraterRules();
     TestNonPositiveAllTerrainWeights();
     TestParserThunks();
     TestPredicateThunk();

@@ -799,12 +799,12 @@ namespace
             SafeReadDword(objectTemplate + 32, subtype) && subtype == 5;
     }
 
-    bool IsLakeTemplate(DWORD objectTemplate)
+    bool IsLakeOrCraterTemplate(DWORD objectTemplate)
     {
         DWORD type = 0, subtype = 0;
         if (!objectTemplate || !SafeReadDword(objectTemplate + 28, type) ||
             !SafeReadDword(objectTemplate + 32, subtype)) return false;
-        return (subtype == 0 && (type == 121 || type == 126 || type == 154)) ||
+        return (subtype == 0 && (type == 118 || type == 121 || type == 126 || type == 149 || type == 154)) ||
             (type == 140 && subtype == 8);
     }
 
@@ -847,17 +847,17 @@ namespace
         if (!SafeReadDword(record + 0x10, native)) return false;
         // A workbook-mapped native object can have no RandTrn subtype row
         // (for example Maple Trees, 140/12). Repair only missing rows here.
-        bool lakeOverlap = IsLakeTemplate(objectTemplate);
-        if (lakeOverlap && native)
+        bool restrictedOverlap = IsLakeOrCraterTemplate(objectTemplate);
+        if (restrictedOverlap && native)
         {
             DWORD rowId = 0, overlaps = 0, weight = 0;
             if (!SafeReadDword(native, rowId) || rowId >= kMaxRandTrnRowCount ||
                 !SafeReadDword(native + 64, overlaps) || !overlaps ||
                 !SafeReadDword(overlaps + rowId * 4, weight)) return false;
-            lakeOverlap = static_cast<int>(weight) <= -5000;
+            restrictedOverlap = static_cast<int>(weight) <= -5000;
         }
         const bool selfOverlap = IsSandDuneTemplate(objectTemplate) ||
-            IsSnowHillTemplate(objectTemplate) || lakeOverlap;
+            IsSnowHillTemplate(objectTemplate) || restrictedOverlap;
         if (!s_generationAllTerrains && !custom && native && !selfOverlap) return true;
         auto found = s_selectedObjectRules.find(objectTemplate);
         if (found == s_selectedObjectRules.end())
@@ -880,9 +880,9 @@ namespace
                 }
                 return false;
             }
-            // Dunes, Snow Hills and some lakes forbid self-overlap. Change only
+            // Dunes, Snow Hills, lakes and craters can forbid self-overlap. Change only
             // a private row, using the same self-overlap weight as mountains.
-            if (selfOverlap && (!lakeOverlap || found->second.overlap[found->second.row[0]] <= -5000))
+            if (selfOverlap && (!restrictedOverlap || found->second.overlap[found->second.row[0]] <= -5000))
                 found->second.overlap[found->second.row[0]] = 30;
             if (s_selectedObjectRules.size() <= 12)
                 LogFormat("Obstacle variants: private selected-object rules button=%s mask=%03lX sourceRow=%lu fallback=%d",

@@ -155,3 +155,9 @@ all-terrain off/on/off, changed forbidden self-overlap only, preserved positive
 self-overlap, cross-row/source arrays and row IDs, terrain masks, Void, repeated
 candidates, selection and Standard bypass. Native results are in
 [the lake gap notes](../docs/lake-gaps.md).
+
+The combined lake/crater rule cases also cover all eight crater buttons and both
+Sand variants, preserved Snow Craters overlap weight, all-terrain off/on/off,
+source/cross-row data, terrain masks, Void, selection and Standard bypass.
+Native English/Russian and normal-terrain results are in
+[the crater gap notes](../docs/crater-gaps.md).
