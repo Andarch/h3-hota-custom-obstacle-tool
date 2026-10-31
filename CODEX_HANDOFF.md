@@ -190,8 +190,24 @@ Regenerate with:
   parent's expanded masks, private scoring rows and actual-terrain edge handling.
   Native firstTerrain/row matching, overlap bans, footprints, paint scope and Void
   rejection remain in force. See docs/dune-all-terrain-gap-fill.md for reproduction.
-- Custom-only minimap fix: local type/color index 157 uses 158's blocked shade.
-  Only display colors change; object types, footprints and passability are untouched.
+- Selected Rough Lakes defer Rough Rocks to a native gap-fill pass, regardless of
+  Rough Rocks selection. Identify filler templates by workbook button metadata.
+  Capture original eligible paint separately from dunes; Rough-only with the
+  terrain option off, all non-Void terrains with it on. Expand generator-owned
+  filler masks and use private all-terrain scoring when needed, preserving native
+  firstTerrain/row matching, overlap/footprint checks and paint/Void protection.
+  Existing capture/pre-cleanup hooks now dispatch independent dune/lake passes
+  through shared bounded helpers. No new hook sites or expected-byte changes.
+  Standalone Rough Rocks retain normal selected generation; Standard bypasses it.
+  See docs/rough-lake-gap-fill.md for native corner and coexistence tests.
+- Custom minimap policy audits all 880 DEFs / 121 buttons: 495 loaded definitions
+  across 18 native color classes need the blocked terrain shade; 385 already have
+  it. Correct only affected classes with actual blocked cells, preserving fully
+  passable decorations in shared classes. The shared editor definition embeds
+  the 76-byte native template at +12; passability is +16/+20 (48 bits, zero blocked).
+  The hook passes native EAX definition to a guarded helper and replaces saved
+  ESI only. Stored types, masks, caches and Standard remain unchanged. See
+  docs/minimap-color-audit.md; this supersedes the earlier lava/volcano-only policy.
 - Allow all terrains snapshots its setting per selected-generation run. After native
   firstTerrain/RandTrn matching, the existing parser fallback hook broadens selected
   generator-owned template masks at +0x14/+0x18 to 0xDFF. Every selected candidate

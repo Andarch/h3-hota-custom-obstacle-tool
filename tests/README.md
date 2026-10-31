@@ -179,3 +179,18 @@ terrains, the full native firstTerrain/type/subtype scope, all-terrain off/on/of
 preserved source/cross-row data and row IDs, Void, selection and Standard bypass.
 Native English/Russian and fifteen-button Rocks controls are in
 [the Highlands Outcropping notes](../docs/highlands-outcropping-gaps.md).
+
+Rough Lake filler tests cover off/on/off, Rough Rocks unchecked or checked,
+first-pass deferral, standalone Rocks behavior, original paint scope, blocked/
+ineligible tiles and Void, generator-local mask expansion, private weights and
+unchanged source/overlap/firstTerrain/row identities, parent-approved terrain edges,
+independent dune/lake snapshots and phases, one-use snapshots and Standard bypass.
+Native reproduction and regression results are in
+[the Rough Lake filler notes](../docs/rough-lake-gap-fill.md).
+
+Minimap coverage checks the eighteen audited color classes, preserving all other
+indices and Standard behavior. The thunk sweeps indices 0..233 with blocked and
+fully passable definitions in both modes; tests cover invalid definitions and
+blocked bits in both halves of the 48-bit mask. Native checks exercise all 880
+supported DEFs on twelve terrains in Standard/Custom/Standard order. See
+[the full minimap audit](../docs/minimap-color-audit.md).

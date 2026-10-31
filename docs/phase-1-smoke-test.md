@@ -30,7 +30,8 @@ using `tests/README.md`. Compare a direct editor launch with a fresh launch thro
   all painted non-void terrains with Allow all terrains enabled. Include
   Lava/Void and Water/Void boundaries with only Sand Dunes selected.
 - Workbook-only additions, borrowed rules and missing-row objects such as Maples.
-- Custom volcano minimap shade; return Standard to restore native colors.
+- Custom blocked minimap shades for supported obstacles, including flowers/plants,
+  lava and volcanoes; preserve passable decorations and native Standard colors.
 - Allow all terrains: unchecked at startup, clickable before/after painting, every
   button applies to non-void paint and previews show all eleven terrains.
 - Exercise mountains on Water, reefs on Grass, underground, mixed terrains and Void.

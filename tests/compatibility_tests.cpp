@@ -627,6 +627,113 @@ namespace
         SetCustomObstacleMode(true);
     }
 
+    void TestRoughLakeFill()
+    {
+        SetCustomObstacleMode(true);
+        DWORD generator[9] = {};
+        DWORD cells[12][12] = {};
+        generator[5] = reinterpret_cast<DWORD>(cells);
+        generator[6] = 12; generator[7] = generator[8] = 1;
+        const DWORD oldGenerate = s_generateObstacleCell, oldEligible = s_obstacleCellEligible;
+        s_generateObstacleCell = reinterpret_cast<DWORD>(&DuneFillAttemptStub);
+        s_obstacleCellEligible = reinterpret_cast<DWORD>(&DuneCellEligibleStub);
+        for (bool enabled : { false, true, false })
+        {
+            SetAllObstacleTerrains(enabled);
+            SetObstacleButtonSelection(0, 1u << 5, 0, 0); // Rough Lakes only; Rough Rocks unchecked.
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+            for (DWORD terrain = 0; terrain < 12; ++terrain)
+            {
+                cells[terrain][9] = terrain | (23 << 6); // Transition view must not change actual terrain.
+                cells[terrain][10] = 0x06000000;
+                CHECK(RoughLakeFillTerrainAllowed(terrain) == (terrain != 9 && (enabled || terrain == 5)));
+            }
+            CHECK(!RoughLakeFillTerrainAllowed(12));
+            cells[2][10] |= 0x08000000; // Existing blocked tile.
+            cells[3][10] = 0x02000000;  // Not painted.
+            cells[10][10] = 0x04000000; // Painted, but native eligibility rejects it.
+            CaptureRoughLakePaint(reinterpret_cast<DWORD>(generator));
+            CHECK(!s_roughLakePaintedCells[9] && !s_roughLakePaintedCells[2] && !s_roughLakePaintedCells[3]);
+            s_fillAttemptMask = 0;
+            FillRoughLakeGaps(reinterpret_cast<DWORD>(generator));
+            const DWORD expected = enabled ? (0xDFFu & ~((1u<<2)|(1u<<3)|(1u<<10))) : 32;
+            CHECK(s_fillAttemptMask == expected);
+            CHECK(cells[9][10] == 0x06000000 && cells[2][10] == 0x0E000000 && cells[3][10] == 0x02000000);
+            CHECK(!s_roughLakeFillActive && !s_roughLakeCapturedGenerator);
+            FillRoughLakeGaps(reinterpret_cast<DWORD>(generator));
+            CHECK(s_fillAttemptMask == expected); // Snapshot cannot be reused.
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        }
+        SetObstacleButtonSelection(4, 1u << 5, 0, 0);
+        SetAllObstacleTerrains(false);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        for (auto& cell : cells) cell[10] = 0x06000000;
+        CaptureObstacleGapPaint(reinterpret_cast<DWORD>(generator));
+        CHECK(s_dunePaintedCells[1] && !s_dunePaintedCells[5]);
+        CHECK(!s_roughLakePaintedCells[1] && s_roughLakePaintedCells[5]);
+        s_fillAttemptMask = 0;
+        FillObstacleGaps(reinterpret_cast<DWORD>(generator));
+        CHECK(s_fillAttemptMask == ((1u << 1) | (1u << 5)));
+        CHECK(!s_duneCapturedGenerator && !s_roughLakeCapturedGenerator);
+        s_generateObstacleCell = oldGenerate; s_obstacleCellEligible = oldEligible;
+
+        DWORD object[19] = {}, row[19] = {}, candidate[5] = {};
+        int weights[12], adjacent[201], overlap[201];
+        for (int& w : weights) w = -5000; weights[5] = 10;
+        for (int& w : adjacent) w = -5000;
+        for (int& w : overlap) w = -5000;
+        overlap[9] = 10; // Native Rough Rock/lake overlap allowance.
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        row[0] = 159; row[1] = reinterpret_cast<DWORD>(&holder);
+        row[12] = reinterpret_cast<DWORD>(adjacent); row[13] = row[12] + sizeof(adjacent);
+        row[16] = reinterpret_cast<DWORD>(overlap); row[17] = row[16] + sizeof(overlap);
+        object[0] = 7102; object[5] = 0xDFF; object[6] = 32; object[7] = 140; object[8] = 4;
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object), reinterpret_cast<DWORD>("AVLr02r0.def"));
+        candidate[0] = reinterpret_cast<DWORD>(object); candidate[1] = 5; candidate[4] = reinterpret_cast<DWORD>(row);
+        SetAllObstacleTerrains(true);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        SetObstacleButtonSelection(0, 0, 0, 0);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(candidate));
+        CHECK(object[6] == 32); // No parent selection: do not widen unselected filler.
+        SetObstacleButtonSelection(0, 1u << 5, 0, 0);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(candidate));
+        CHECK(object[5] == 0xDFF && object[6] == 0xDFF);
+        CHECK(candidate[1] == 5 && candidate[4] == reinterpret_cast<DWORD>(row));
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate))); // Main pass defers filler.
+        SetObstacleButtonSelection(0, 1u << 5, 0, 4);
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        SetObstacleButtonSelection(0, 1u << 5, 0, 0);
+        s_roughLakeFillActive = true;
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] != reinterpret_cast<DWORD>(row));
+        for (DWORD terrain = 0; terrain < 12; ++terrain)
+            CHECK(SelectedTerrainEdgeAllowed(candidate[4], terrain) == (terrain != 9));
+        const auto& rules = s_selectedObjectRules.at(reinterpret_cast<DWORD>(object));
+        for (DWORD terrain = 0; terrain < 12; ++terrain)
+            CHECK(rules.weights[terrain] == (terrain == 9 ? -5000 : terrain == 5 ? 10 : 5));
+        for (int i = 0; i < 201; ++i) CHECK(rules.overlap[i] == overlap[i]);
+        CHECK(weights[7] == -5000 && overlap[9] == 10);
+        s_roughLakeFillActive = false;
+        s_duneFillActive = true;
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        s_duneFillActive = false;
+        CHECK(!SelectedTerrainEdgeAllowed(candidate[4], 7)); // Parent is only used during filler pass.
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        candidate[4] = reinterpret_cast<DWORD>(row);
+        SetObstacleButtonSelection(0, 0, 0, 4); // Standalone Rough Rocks keep normal main-pass behavior.
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(!IsRequestedRoughLakeFiller(reinterpret_cast<DWORD>(object)));
+        CaptureRoughLakePaint(reinterpret_cast<DWORD>(generator));
+        CHECK(!s_roughLakeCapturedGenerator);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        SetAllObstacleTerrains(false);
+        SetCustomObstacleMode(false);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        CaptureRoughLakePaint(reinterpret_cast<DWORD>(generator));
+        CHECK(!s_roughLakeCapturedGenerator && ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        SetCustomObstacleMode(true);
+    }
+
     void TestDuneFillPolicy()
     {
         DWORD object[19] = {};
@@ -1027,25 +1134,44 @@ __declspec(naked) void MinimapContinueStub()
 void TestMinimapModeThunk()
 {
     s_colorContinue = reinterpret_cast<DWORD>(MinimapContinueStub);
+    DWORD definition[22] = {};
+    const DWORD corrections[] = { 114,115,117,120,122,127,129,130,132,136,138,139,140,147,150,151,157,161 };
     for (int custom = 0; custom < 2; ++custom)
     {
         SetCustomObstacleMode(custom != 0);
-        for (DWORD objectType = 0; objectType <= 233; ++objectType)
+        for (int passable = 0; passable < 2; ++passable)
         {
-            __asm {
-                pushad
-                mov esi, objectType
-                mov eax, 12345678h
-                call MinimapColorHook
-                popad
+            definition[4] = passable ? MAXDWORD : 0;
+            definition[5] = passable ? 0xFFFF : 0;
+            for (DWORD objectType = 0; objectType <= 233; ++objectType)
+            {
+                const DWORD definitionPointer = reinterpret_cast<DWORD>(definition);
+                __asm {
+                    pushad
+                    mov esi, objectType
+                    mov eax, definitionPointer
+                    call MinimapColorHook
+                    popad
+                }
+                bool affected = false;
+                for (DWORD type : corrections) affected |= objectType == type;
+                const DWORD expected = custom && !passable && affected ? (objectType == 157 ? 158 : 128) : objectType;
+                CHECK(minimapSeenIndex == expected);
+                CHECK(minimapSeenEax == definitionPointer);
+                CHECK((minimapSeenFlags & 1) == (expected < 232 ? 1u : 0u));
+                CHECK((minimapSeenFlags & 0x40) == (expected == 232 ? 0x40u : 0u));
             }
-            const DWORD expected = custom && objectType == 157 ? 158 : objectType;
-            CHECK(minimapSeenIndex == expected);
-            CHECK(minimapSeenEax == 0x12345678);
-            CHECK((minimapSeenFlags & 1) == (expected < 232 ? 1u : 0u));
-            CHECK((minimapSeenFlags & 0x40) == (expected == 232 ? 0x40u : 0u));
         }
     }
+    SetCustomObstacleMode(true);
+    CHECK(CorrectObstacleMinimapIndex(139, 0) == 139);
+    CHECK(CorrectObstacleMinimapIndex(139, 1) == 139);
+    definition[4] = MAXDWORD; definition[5] = 0xFFFE;
+    CHECK(CorrectObstacleMinimapIndex(139, reinterpret_cast<DWORD>(definition)) == 128);
+    definition[4] = MAXDWORD - 1; definition[5] = 0xFFFF;
+    CHECK(CorrectObstacleMinimapIndex(139, reinterpret_cast<DWORD>(definition)) == 128);
+    definition[4] = MAXDWORD; definition[5] = MAXDWORD;
+    CHECK(CorrectObstacleMinimapIndex(139, reinterpret_cast<DWORD>(definition)) == 139);
     SetCustomObstacleMode(false);
 }
 
@@ -1176,6 +1302,7 @@ int main()
     TestIceArchOrder();
     TestDuneFillPolicy();
     TestAllTerrainDuneFill();
+    TestRoughLakeFill();
     std::puts("PASS: painted map layers, terrain geometry, 1.8.1 profiles, byte guards, row filters/bounds, and x86 hook thunks.");
     return 0;
 }

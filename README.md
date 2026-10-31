@@ -114,6 +114,13 @@ selected, once you start painting, obstacle buttons not valid for the painted te
 will become greyed out. Generation needs at least one selected obstacle valid for the
 painted area.
 
+**Sand Dunes** use small dunes, and **Rough Lakes** use **Rough Rocks**, to fill
+remaining painted gaps after the main placement pass, even when **Sand Hills** or
+**Rough Rocks** are unchecked. These fillers follow the **Allow all terrains** setting.
+
+Custom mode also corrects minimap shading for supported blocking obstacles.
+Fully passable decorations keep their native colors.
+
 Large obstacles may leave gaps or fail to generate in narrow painted areas. When
 **Allow all terrains** is not selected, each obstacle needs enough painted space on compatible
 terrain. A brush spanning a terrain boundary may provide too little space on either side.

@@ -108,7 +108,11 @@ namespace
 
     VariantTraceRowStats s_variantTraceRows[kMaxRandTrnRowCount] = {};
     DWORD s_traceCandidateRow = 0;
+    constexpr DWORD kMaxGapPaintCells = 252 * 252 * 2;
     bool s_duneFillActive = false;
+    bool s_roughLakeFillActive = false;
+    DWORD s_roughLakeCapturedGenerator = 0;
+    BYTE s_roughLakePaintedCells[kMaxGapPaintCells] = {};
     DWORD s_duneFillContinue = 0;
     DWORD s_generateObstacleCell = 0;
     DWORD s_obstacleCellEligible = 0;
@@ -116,7 +120,7 @@ namespace
     BYTE s_duneCaptureOriginal[5] = {};
     DWORD s_duneCaptureContinue = 0;
     DWORD s_duneCapturedGenerator = 0;
-    BYTE s_dunePaintedCells[252 * 252 * 2] = {};
+    BYTE s_dunePaintedCells[kMaxGapPaintCells] = {};
     int s_traceCandidateButton = -1;
     DWORD s_candidateTerrainMask = 0;
     DWORD s_candidateObjectTemplate = 0;
@@ -867,6 +871,32 @@ namespace
             (s_generationAllTerrains || terrain == 1);
     }
 
+    bool RoughLakesSelected()
+    {
+        for (int i = 0; i < kObstacleButtonCount; ++i)
+            if (strcmp(ObstacleButtonName(i), "Rough Lakes") == 0)
+                return IsObstacleButtonSelected(i);
+        return false;
+    }
+
+    bool IsRoughRockFillerTemplate(DWORD objectTemplate)
+    {
+        const auto* button = ObstacleButtonDefinitionAt(ObstacleButtonIndexForObjectTemplate(objectTemplate));
+        return button && strcmp(button->name, "Rough Rocks") == 0;
+    }
+
+    bool IsRequestedRoughLakeFiller(DWORD objectTemplate)
+    {
+        return RoughLakesSelected() && IsRoughRockFillerTemplate(objectTemplate);
+    }
+
+    bool RoughLakeFillTerrainAllowed(DWORD terrain)
+    {
+        terrain &= 63;
+        return terrain < kTerrainCount && terrain != 9 &&
+            (s_generationAllTerrains || terrain == 5);
+    }
+
     bool ApplySelectedObjectRules(DWORD record, DWORD objectTemplate, int buttonIndex)
     {
         bool custom = false;
@@ -965,10 +995,16 @@ namespace
         }
 
         const int buttonIndex = ObstacleButtonIndexForObjectTemplate(objectTemplate);
-        const bool allowed = s_duneFillActive
-            ? IsRequestedDuneFiller(objectTemplate) &&
-                (!s_generationAllTerrains || ApplySelectedObjectRules(record, objectTemplate, buttonIndex))
-            : !(SandDunesSelected() && IsDuneFillerTemplate(objectTemplate)) &&
+        bool allowed = false;
+        if (s_duneFillActive)
+            allowed = IsRequestedDuneFiller(objectTemplate) &&
+                (!s_generationAllTerrains || ApplySelectedObjectRules(record, objectTemplate, buttonIndex));
+        else if (s_roughLakeFillActive)
+            allowed = IsRequestedRoughLakeFiller(objectTemplate) &&
+                ApplySelectedObjectRules(record, objectTemplate, buttonIndex);
+        else
+            allowed = !IsRequestedRoughLakeFiller(objectTemplate) &&
+                !(SandDunesSelected() && IsDuneFillerTemplate(objectTemplate)) &&
                 IsObstacleButtonSelected(buttonIndex) &&
                 ApplySelectedObjectRules(record, objectTemplate, buttonIndex);
 
@@ -1086,7 +1122,8 @@ namespace
         if (!s_generationAllTerrains ||
             s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection)) return true;
         if (!IsObstacleButtonSelected(ObstacleButtonIndexForObjectTemplate(objectTemplate)) &&
-            !IsRequestedDuneFiller(objectTemplate)) return true;
+            !IsRequestedDuneFiller(objectTemplate) &&
+            !IsRequestedRoughLakeFiller(objectTemplate)) return true;
         // The generator loads its own template records; never change editor/map caches.
         // Keep wrapper firstTerrain intact: native RandTrn matching has already finished.
         return SafeWriteDword(objectTemplate + 0x14, kAllObstacleTerrainMask) &&
@@ -1183,26 +1220,45 @@ namespace
         return true;
     }
 
-    void __stdcall CaptureDunePaint(DWORD generator)
+    void CaptureGapPaint(DWORD generator, BYTE* painted, DWORD& captured,
+        bool requested, bool (*terrainAllowed)(DWORD))
     {
-        s_duneCapturedGenerator = 0;
+        captured = 0;
         if (s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
-            !SandDunesSelected()) return;
+            !requested) return;
         DWORD grid = 0, width = 0, height = 0, levels = 0;
         if (!SafeReadDword(generator + 20, grid) || !grid ||
             !SafeReadDword(generator + 24, width) || width == 0 || width > 252 ||
             !SafeReadDword(generator + 28, height) || height == 0 || height > 252 ||
             !SafeReadDword(generator + 32, levels) || levels == 0 || levels > 2) return;
-        ZeroMemory(s_dunePaintedCells, sizeof(s_dunePaintedCells));
+        ZeroMemory(painted, kMaxGapPaintCells);
         for (DWORD i = 0; i < width * height * levels; ++i)
         {
             DWORD terrain = 0, flags = 0;
             if (!SafeReadDword(grid + 48 * i + 36, terrain) ||
                 !SafeReadDword(grid + 48 * i + 40, flags)) return;
-            s_dunePaintedCells[i] = DuneFillTerrainAllowed(terrain) &&
+            painted[i] = terrainAllowed(terrain) &&
                 (flags & 0x04000000) && !(flags & 0x08000000);
         }
-        s_duneCapturedGenerator = generator;
+        captured = generator;
+    }
+
+    void __stdcall CaptureDunePaint(DWORD generator)
+    {
+        CaptureGapPaint(generator, s_dunePaintedCells, s_duneCapturedGenerator,
+            SandDunesSelected(), DuneFillTerrainAllowed);
+    }
+
+    void __stdcall CaptureRoughLakePaint(DWORD generator)
+    {
+        CaptureGapPaint(generator, s_roughLakePaintedCells, s_roughLakeCapturedGenerator,
+            RoughLakesSelected(), RoughLakeFillTerrainAllowed);
+    }
+
+    void __stdcall CaptureObstacleGapPaint(DWORD generator)
+    {
+        CaptureDunePaint(generator);
+        CaptureRoughLakePaint(generator);
     }
 
     __declspec(naked) void DuneCaptureHook()
@@ -1212,7 +1268,7 @@ namespace
             pushfd
             pushad
             push ecx
-            call CaptureDunePaint
+            call CaptureObstacleGapPaint
             popad
             popfd
             push ebp
@@ -1222,18 +1278,19 @@ namespace
         }
     }
 
-    void __stdcall FillDuneGaps(DWORD generator)
+    void FillPaintedGaps(DWORD generator, BYTE* painted, DWORD& captured, bool& active,
+        bool requested, bool (*terrainAllowed)(DWORD), const char* label)
     {
-        if (s_duneFillActive || generator != s_duneCapturedGenerator ||
+        if (active || generator != captured ||
             s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
-            !SandDunesSelected()) return;
+            !requested) return;
         DWORD grid = 0, width = 0, height = 0, levels = 0;
         if (!SafeReadDword(generator + 20, grid) || !grid ||
             !SafeReadDword(generator + 24, width) || width == 0 || width > 252 ||
             !SafeReadDword(generator + 28, height) || height == 0 || height > 252 ||
             !SafeReadDword(generator + 32, levels) || levels == 0 || levels > 2) return;
         DWORD attempted = 0;
-        s_duneFillActive = true;
+        active = true;
         __try
         {
             for (DWORD z = 0; z < levels; ++z)
@@ -1241,10 +1298,10 @@ namespace
                     for (DWORD x = 0; x < width; ++x)
                     {
                         const DWORD index = x + width * (y + height * z);
-                        if (!s_dunePaintedCells[index]) continue;
+                        if (!painted[index]) continue;
                         const DWORD cell = grid + 48 * index;
                         DWORD terrain = 0, flags = 0;
-                        if (!SafeReadDword(cell + 36, terrain) || !DuneFillTerrainAllowed(terrain) ||
+                        if (!SafeReadDword(cell + 36, terrain) || !terrainAllowed(terrain) ||
                             !SafeReadDword(cell + 40, flags) ||
                             (flags & 0x08000000)) continue;
                         // Recheck native eligibility after every placement. The
@@ -1258,13 +1315,31 @@ namespace
         }
         __finally
         {
-            s_duneFillActive = false;
-            s_duneCapturedGenerator = 0;
+            active = false;
+            captured = 0;
             s_candidateObjectTemplate = 0;
             s_traceCandidateRow = 0;
             s_candidateTerrainMask = 0;
         }
-        LogFormat("Dune gap-fill pass: attempted %lu remaining painted eligible cells.", attempted);
+        LogFormat("%s gap-fill pass: attempted %lu remaining painted eligible cells.", label, attempted);
+    }
+
+    void __stdcall FillDuneGaps(DWORD generator)
+    {
+        FillPaintedGaps(generator, s_dunePaintedCells, s_duneCapturedGenerator,
+            s_duneFillActive, SandDunesSelected(), DuneFillTerrainAllowed, "Dune");
+    }
+
+    void __stdcall FillRoughLakeGaps(DWORD generator)
+    {
+        FillPaintedGaps(generator, s_roughLakePaintedCells, s_roughLakeCapturedGenerator,
+            s_roughLakeFillActive, RoughLakesSelected(), RoughLakeFillTerrainAllowed, "Rough lake");
+    }
+
+    void __stdcall FillObstacleGaps(DWORD generator)
+    {
+        FillDuneGaps(generator);
+        FillRoughLakeGaps(generator);
     }
 
     __declspec(naked) void DuneFillPassHook()
@@ -1274,7 +1349,7 @@ namespace
             pushfd
             pushad
             push ebx
-            call FillDuneGaps
+            call FillObstacleGaps
             popad
             popfd
             cmp [ebx+20h], edi
@@ -1315,7 +1390,8 @@ namespace
             !row || row != s_traceCandidateRow || terrain >= kTerrainCount || terrain == 9 ||
             !(s_candidateTerrainMask & (1u << terrain)) ||
             !(IsObstacleButtonSelected(s_traceCandidateButton) ||
-                (s_duneFillActive && IsRequestedDuneFiller(s_candidateObjectTemplate)))) return false;
+                (s_duneFillActive && IsRequestedDuneFiller(s_candidateObjectTemplate)) ||
+                (s_roughLakeFillActive && IsRequestedRoughLakeFiller(s_candidateObjectTemplate)))) return false;
         DWORD holder = 0, weights = 0, weight = 0;
         return SafeReadDword(row + 4, holder) && SafeReadDword(holder, weights) &&
             SafeReadDword(weights + terrain * 4, weight) && static_cast<int>(weight) > -4000;
@@ -1602,7 +1678,7 @@ bool InstallDuneFillHook(const TargetProfile& profile, std::string& error)
         error = std::string(site.name) + ": " + HookResultName(result);
         return false;
     }
-    LogMessage("Dune gap-fill pass installed before native selection cleanup.");
+    LogMessage("Obstacle gap-fill passes installed before native selection cleanup.");
     return true;
 }
 
