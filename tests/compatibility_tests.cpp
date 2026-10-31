@@ -243,6 +243,57 @@ namespace
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         CHECK(candidate[4] == 0);
     }
+    void TestSnowHillRules()
+    {
+        DWORD source[19] = {}, object[19] = {}, candidate[5] = {};
+        int weights[12], adjacent[201], overlap[201];
+        for (int& value : weights) value = -5000;
+        weights[3] = 5;
+        for (int& value : adjacent) value = 5;
+        for (int& value : overlap) value = -5000;
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        source[0] = 162; source[1] = reinterpret_cast<DWORD>(&holder);
+        source[12] = reinterpret_cast<DWORD>(adjacent); source[13] = source[12] + sizeof(adjacent);
+        source[16] = reinterpret_cast<DWORD>(overlap); source[17] = source[16] + sizeof(overlap);
+        object[0] = 8008; object[7] = 140; object[8] = 5; object[6] = 1u << 3;
+        candidate[0] = reinterpret_cast<DWORD>(object);
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+        for (bool allTerrains : { false, true, false })
+        {
+            for (const char* name : { "avlxsn01.def", "avlxsn02.def", "avlxsn03.def" })
+            {
+                SetAllObstacleTerrains(allTerrains);
+                SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+                RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object), reinterpret_cast<DWORD>(name));
+                candidate[4] = reinterpret_cast<DWORD>(source);
+                CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+                CHECK(IsSnowHillTemplate(reinterpret_cast<DWORD>(object)));
+                const auto& rules = s_selectedObjectRules.at(reinterpret_cast<DWORD>(object));
+                CHECK(candidate[4] == reinterpret_cast<DWORD>(rules.row));
+                CHECK(rules.row[0] == 162 && rules.overlap[162] == 30);
+                for (int i = 0; i < 201; ++i)
+                {
+                    if (i != 162) CHECK(rules.overlap[i] == overlap[i]);
+                    CHECK(rules.adjacent[i] == adjacent[i] && overlap[i] == -5000);
+                }
+                for (int terrain = 0; terrain < 12; ++terrain)
+                    CHECK(rules.weights[terrain] == (terrain != 9 && (allTerrains || terrain == 3) ? 5 : -5000));
+                CHECK(weights[0] == -5000 && weights[3] == 5);
+            }
+        }
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        SetObstacleButtonSelection(0, 0, 0, 0);
+        candidate[4] = reinterpret_cast<DWORD>(source);
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] == reinterpret_cast<DWORD>(source));
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] == reinterpret_cast<DWORD>(source) && s_selectedObjectRules.empty());
+        object[8] = 6; CHECK(!IsSnowHillTemplate(reinterpret_cast<DWORD>(object)));
+        object[8] = 5; object[7] = 148; CHECK(!IsSnowHillTemplate(reinterpret_cast<DWORD>(object)));
+        SetObstacleButtonSelection(MAXDWORD, MAXDWORD, MAXDWORD, MAXDWORD);
+    }
+
     DWORD s_fillAttemptMask = 0;
     BOOL __fastcall DuneCellEligibleStub(DWORD cell, DWORD)
     {
@@ -874,6 +925,7 @@ int main()
     TestButtonSelectionCapacity();
     TestAllTerrainGeneration();
     TestSelectedRules();
+    TestSnowHillRules();
     TestNonPositiveAllTerrainWeights();
     TestParserThunks();
     TestPredicateThunk();

@@ -143,3 +143,9 @@ pairs (including glaciers), unchanged Wasteland Arch behavior, wrong types/group
 forbidden overlap, selection and Standard bypass. Native separate/mixed variant,
 Wasteland control, English/Russian and Snow-only results are recorded in
 [the Ice Arch notes](../docs/ice-arch-gaps.md).
+
+Snow Hill rule tests cover all three DEF mappings, all-terrain off/on/off,
+private self-overlap only, unchanged source/cross-family overlap/adjacency data,
+terrain masks and Void, native row identity, selection and Standard bypass.
+Native saved-layout and all seven hill-family controls are in
+[the Snow Hill notes](../docs/snow-hill-gaps.md).

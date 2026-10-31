@@ -792,6 +792,13 @@ namespace
             SafeReadDword(objectTemplate + 32, subtype) && subtype == 6;
     }
 
+    bool IsSnowHillTemplate(DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0;
+        return objectTemplate && SafeReadDword(objectTemplate + 28, type) && type == 140 &&
+            SafeReadDword(objectTemplate + 32, subtype) && subtype == 5;
+    }
+
     bool IsDuneFillerTemplate(DWORD objectTemplate)
     {
         DWORD type = 0, subtype = 0;
@@ -831,8 +838,8 @@ namespace
         if (!SafeReadDword(record + 0x10, native)) return false;
         // A workbook-mapped native object can have no RandTrn subtype row
         // (for example Maple Trees, 140/12). Repair only missing rows here.
-        const bool dune = IsSandDuneTemplate(objectTemplate);
-        if (!s_generationAllTerrains && !custom && native && !dune) return true;
+        const bool selfOverlap = IsSandDuneTemplate(objectTemplate) || IsSnowHillTemplate(objectTemplate);
+        if (!s_generationAllTerrains && !custom && native && !selfOverlap) return true;
         auto found = s_selectedObjectRules.find(objectTemplate);
         if (found == s_selectedObjectRules.end())
         {
@@ -854,9 +861,9 @@ namespace
                 }
                 return false;
             }
-            // Native dune rows forbid self-overlap. Use a private row only for
+            // Native dune and Snow Hill rows forbid self-overlap. Use a private row only for
             // selected generation, with the same self-overlap weight as mountains.
-            if (dune)
+            if (selfOverlap)
                 found->second.overlap[found->second.row[0]] = 30;
             if (s_selectedObjectRules.size() <= 12)
                 LogFormat("Obstacle variants: private selected-object rules button=%s mask=%03lX sourceRow=%lu fallback=%d",

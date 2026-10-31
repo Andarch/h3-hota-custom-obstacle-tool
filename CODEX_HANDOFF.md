@@ -142,6 +142,11 @@ Regenerate with:
   internal and boundary gaps. Other type-140 families (including Wasteland Arches
   and dunes) keep native order checks. Native overlap bans and footprint/Void
   checks remain. See docs/ice-arch-gaps.md for isolated variant comparisons.
+- Snow Hills (type 140/subtype 5, native row 162) also need private self-overlap
+  weight 30 to avoid internal gaps. Only their own row's overlap entry changes;
+  other overlap entries, source rows, footprints, Void and drawing-order checks
+  remain native. This applies to selected Custom runs with either terrain-option
+  setting; Standard bypasses it. See docs/snow-hill-gaps.md.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining
