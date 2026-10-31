@@ -1,6 +1,6 @@
 # HotA Custom Obstacle Tool
 
-**Version: v0.9.2 · Author: Andarch**
+**Version: v0.9.3 · Author: Andarch**
 
 Supports HotA 1.8.1 in English and Russian
 
@@ -44,7 +44,10 @@ native tool functionality while the plugin is loaded, and you can seamlessly swi
   and can be changed before or after painting. Button availability and hover previews
   reflect the option.
 - **Selections and category expansion remembered within the session**, including
-  when switching modes or leaving and reopening the obstacle tool.  
+  when switching modes or leaving and reopening the obstacle tool.
+- **Minimap color fixes** for obstacles that mistakenly use the lighter shade (passable)
+  of each terrain color instead of the darker shade (blocked). This makes the minimap
+  correctly represent the passability of the map.
 - **Supports English and Russian**, with the language of the editor automatically
   detected.
 
@@ -131,9 +134,6 @@ Paint a wider area or include smaller obstacle types to improve coverage.
 | Problem | What to check |
 | --- | --- |
 | Missing `MSVCP140.dll` or `VCRUNTIME140.dll`, or the launcher cannot start | Install or repair the latest Microsoft Visual C++ v14 **x86** Redistributable linked above. |
-| Missing `ucrtbased.dll`, `MSVCP140D.dll` or `VCRUNTIME140D.dll` | Use the matching EXE/DLL from the **Release** build. Debug builds require developer runtimes and are not distribution packages. |
-| Plugin DLL not found | Extract the ZIP and keep the matching EXE and DLL in the same folder. |
-| HotA cannot be found | Select the folder containing `h3hota_maped.exe`, or set `HotaPath` in the INI. |
 | Unsupported editor or DLL version | Use the official HotA 1.8.1 editor and its matching `hota_me.dll`. Modified binaries may fail validation. |
 | Custom controls are missing | Start the editor through `HotACustomObstacleTool.exe`, open the obstacle brush, and select Custom. |
 | Place Obstacles is unavailable | Paint an eligible area and select at least one applicable obstacle button. Check the painted terrain and the Allow all terrains setting. |
