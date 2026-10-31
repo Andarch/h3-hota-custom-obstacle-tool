@@ -68,8 +68,8 @@ files. The tool does not overwrite original game executables, DLLs, or data tabl
   Mountains, Reefs, Hills, Mounds, Lakes, Craters, Fissures, Trees, Undergrowth,
   Rocks, Animals, and Miscellaneous.
 - **Enables placement of many obstacles not supported by native placement**
-  (glaciers, ice formations, arches, animals, crates, barrels, ropes, sacks, 
-  abandoned boats, burnt structures, crumbled structures, bones)
+  (maple trees, glaciers, ice formations, arches, animals, crates, barrels, ropes,
+  sacks, abandoned boats, burnt structures, crumbled structures, bones)
 - **Compact artwork buttons and hover previews** showing obstacle names, larger
   artwork, and applicable terrains. After painting, buttons unavailable for the
   painted terrain are greyed out. Painting on either map level is considered.
