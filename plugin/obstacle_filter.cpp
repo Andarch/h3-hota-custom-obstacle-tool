@@ -736,6 +736,8 @@ namespace
 
     std::map<DWORD, SelectedObjectRules> s_selectedObjectRules;
     DWORD s_defaultSelectedRow = 0;
+    DWORD s_wastelandFissureRow = 0;
+    int s_wastelandFissureButton = -1;
     bool s_selectedRulesFailureLogged = false;
 
     bool BuildSelectedObjectRules(DWORD source, DWORD mask, SelectedObjectRules& rules, bool allTerrains)
@@ -808,6 +810,17 @@ namespace
             (type == 140 && subtype == 8);
     }
 
+    bool IsAffectedFissureRecord(DWORD record, DWORD objectTemplate)
+    {
+        DWORD type = 0, subtype = 0, firstTerrain = 0;
+        if (!objectTemplate || !SafeReadDword(objectTemplate + 28, type) ||
+            !SafeReadDword(objectTemplate + 32, subtype) ||
+            !((type == 139 && subtype == 29) || (type == 117 && subtype == 0)) ||
+            !record || !SafeReadDword(record + 4, firstTerrain)) return false;
+        // firstTerrain is the native row-matching terrain, preserved when masks expand.
+        return firstTerrain == 0 || firstTerrain == 2 || firstTerrain == 11;
+    }
+
     bool IsDuneFillerTemplate(DWORD objectTemplate)
     {
         DWORD type = 0, subtype = 0;
@@ -847,7 +860,8 @@ namespace
         if (!SafeReadDword(record + 0x10, native)) return false;
         // A workbook-mapped native object can have no RandTrn subtype row
         // (for example Maple Trees, 140/12). Repair only missing rows here.
-        bool restrictedOverlap = IsLakeOrCraterTemplate(objectTemplate);
+        bool restrictedOverlap = IsLakeOrCraterTemplate(objectTemplate) ||
+            IsAffectedFissureRecord(record, objectTemplate);
         if (restrictedOverlap && native)
         {
             DWORD rowId = 0, overlaps = 0, weight = 0;
@@ -865,6 +879,12 @@ namespace
             DWORD source = ObstacleBorrowedRowForObjectTemplate(objectTemplate);
             DWORD mask = 0;
             if (!SafeReadDword(objectTemplate + 0x18, mask)) return false;
+            DWORD firstTerrain = 0;
+            if (!source && !native && s_wastelandFissureRow &&
+                buttonIndex == s_wastelandFissureButton &&
+                IsAffectedFissureRecord(record, objectTemplate) &&
+                SafeReadDword(record + 4, firstTerrain) && firstTerrain == 11)
+                source = s_wastelandFissureRow;
             if (!source) source = native ? native : s_defaultSelectedRow;
             const auto* button = ObstacleButtonDefinitionAt(buttonIndex);
             if (!button) return false;
@@ -880,7 +900,7 @@ namespace
                 }
                 return false;
             }
-            // Dunes, Snow Hills, lakes and craters can forbid self-overlap. Change only
+            // Selected terrain families can forbid self-overlap. Change only
             // a private row, using the same self-overlap weight as mountains.
             if (selfOverlap && (!restrictedOverlap || found->second.overlap[found->second.row[0]] <= -5000))
                 found->second.overlap[found->second.row[0]] = 30;
@@ -1007,7 +1027,21 @@ namespace
                 s_defaultSelectedRow = rowRecord; // Native dirt-rock scoring fallback.
             DWORD objectTemplate = 0;
             if (SafeReadDword(wrapper, objectTemplate) && objectTemplate)
+            {
                 ObserveObstacleBorrowSourceRow(objectTemplate, rowRecord);
+                DWORD type = 0, firstTerrain = 0;
+                const int button = ObstacleButtonIndexForObjectTemplate(objectTemplate);
+                if (SafeReadDword(rowRecord, rowId) && rowId < kMaxRandTrnRowCount &&
+                    IsAffectedFissureRecord(wrapper, objectTemplate) &&
+                    SafeReadDword(objectTemplate + 28, type) && type == 117 &&
+                    SafeReadDword(wrapper + 4, firstTerrain) && firstTerrain == 11 &&
+                    IsObstacleButtonSelected(button))
+                {
+                    // Reuse a native row from this group for its missing-row variants.
+                    s_wastelandFissureRow = rowRecord;
+                    s_wastelandFissureButton = button;
+                }
+            }
         }
 
     }
@@ -1795,6 +1829,8 @@ void SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode mode)
         ResetObstacleBorrowedRows();
         s_selectedObjectRules.clear();
         s_defaultSelectedRow = 0;
+        s_wastelandFissureRow = 0;
+        s_wastelandFissureButton = -1;
         s_selectedRulesFailureLogged = false;
         ClearVariantTraceRows();
     }

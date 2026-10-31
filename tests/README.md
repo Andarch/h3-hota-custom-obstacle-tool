@@ -161,3 +161,9 @@ Sand variants, preserved Snow Craters overlap weight, all-terrain off/on/off,
 source/cross-row data, terrain masks, Void, selection and Standard bypass.
 Native English/Russian and normal-terrain results are in
 [the crater gap notes](../docs/crater-gaps.md).
+
+Restricted-overlap cases include all six fissure groups and preserve the three
+working families' overlap bans. Wasteland fallback tests cover all three missing-row
+DEFs, selected/same-button/native-terrain capture, rejected donors, off/on/off,
+source/cross-row preservation, native firstTerrain, run reset and Standard bypass.
+See [the fissure gap notes](../docs/fissure-gaps.md) for native comparisons.

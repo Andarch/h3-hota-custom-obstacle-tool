@@ -161,6 +161,15 @@ Regenerate with:
   change only their private self-overlap entry to 30. Native cross-row bans,
   footprints, drawing-order, paint and Void checks remain; Standard bypasses it.
   See docs/crater-gaps.md for all eight controls and Sand's two scoring rows.
+- Dirt/Grass/Wasteland Fissures use private self-overlap weight 30 when forbidden.
+  Recognize native 139/29 or 117/0 plus preserved wrapper firstTerrain 0/2/11;
+  Rough/Subterranean/Lava Fissures keep their native overlap rules. Wasteland's
+  three 139/29 variants have no native row. Capture a selected same-button 117/0
+  wrapper's native row during parsing and use it before the generic row-9 fallback
+  only for missing-row Wasteland candidates. Explicit workbook donors and existing
+  native rows take precedence; capture resets each run. This unifies the Wasteland
+  group on row 186 without changing source rows or cross-row overlap arrays.
+  See docs/fissure-gaps.md for baseline, controls and English/Russian validation.
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining
