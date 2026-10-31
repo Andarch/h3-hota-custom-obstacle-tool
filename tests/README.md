@@ -51,7 +51,7 @@ controls/native toolbar visibility, remembered mode and selections, preserved
 focus, and unchanged queued Default placement commands. Filter tests verify that
 Default bypasses diagnostic exclusions and custom generation/overlay requests.
 Minimap thunk tests cover both modes for indices 0..233, preserving EAX and
-native comparison flags while substituting index 157 only in Custom mode.
+native comparison flags while correcting affected blocking classes in both modes.
 
 Selected-object rule tests cover private weight/adjacency copies, preserved
 overlap bans, land versus water/void masks, sparse masks, malformed native rows,
@@ -189,7 +189,7 @@ Native reproduction and regression results are in
 [the Rough Lake filler notes](../docs/rough-lake-gap-fill.md).
 
 Minimap coverage checks the eighteen audited color classes, preserving all other
-indices and Standard behavior. The thunk sweeps indices 0..233 with blocked and
+indices. The thunk sweeps indices 0..233 with blocked and
 fully passable definitions in both modes; tests cover invalid definitions and
 blocked bits in both halves of the 48-bit mask. Native checks exercise all 880
 supported DEFs on twelve terrains in Standard/Custom/Standard order. See
@@ -215,3 +215,7 @@ controls, all twelve native firstTerrain values with expanded template masks,
 wrong type/subtype, off/on/off, selection and Standard bypass. Native English
 and Russian Grass/Highlands controls are recorded in
 [the flower gap notes](../docs/grass-flower-highlands-gaps.md).
+
+Minimap thunk tests check Standard/Custom/Standard for all 234 color indices and
+both blocked and fully passable definitions. Corrected shading is independent
+of mode; native comparison flags and definition pointers remain preserved.

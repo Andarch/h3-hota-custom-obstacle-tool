@@ -6,8 +6,9 @@ Read `CODEX_HANDOFF.md` before planning or changing this project.
 
 - Target the official HotA map editor through an x86 injected DLL.
 - Preserve vanilla behavior unless a feature is explicitly active.
-- Standard mode must use native placement and minimap colors, bypass
-  custom filters/overlays/fillers, and hide Custom controls. Custom mode is opt-in.
+- Standard mode must use native placement, bypass custom filters/overlays/fillers,
+  and hide Custom controls. Custom mode is opt-in. Minimap color corrections apply
+  in both Standard and Custom modes.
 - Keep this plugin specific to the obstacle tool; do not add unrelated editor
   enhancements or attempt a full editor rewrite.
 - Keep obstacle features independent so each can be enabled, disabled, and tested alone.

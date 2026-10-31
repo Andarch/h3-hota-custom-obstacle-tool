@@ -56,7 +56,7 @@ Last updated: 2026-10-31
   metadata. EXE and DLL have numeric file version 0.9.2.0 and product version v0.9.2.
   `resources/version.rc` is compiled into both; `plugin/about.rc` holds the dialog.
 
-- Standard is the startup mode: native generation, enablement and minimap colors;
+- Standard is the startup mode: native generation and enablement;
   all Custom controls are hidden. Custom is opt-in.
 - Tooltips: Standard = "Use the editor's native obstacle placement." Custom =
   "Customize which obstacle types can be generated."
@@ -209,13 +209,14 @@ Regenerate with:
   through shared bounded helpers. No new hook sites or expected-byte changes.
   Standalone Rough Rocks retain normal selected generation; Standard bypasses it.
   See docs/rough-lake-gap-fill.md for native corner and coexistence tests.
-- Custom minimap policy audits all 880 DEFs / 121 buttons: 495 loaded definitions
+- Mode-independent minimap policy audits all 880 DEFs / 121 buttons: 495 loaded definitions
   across 18 native color classes need the blocked terrain shade; 385 already have
   it. Correct only affected classes with actual blocked cells, preserving fully
   passable decorations in shared classes. The shared editor definition embeds
   the 76-byte native template at +12; passability is +16/+20 (48 bits, zero blocked).
   The hook passes native EAX definition to a guarded helper and replaces saved
-  ESI only. Stored types, masks, caches and Standard remain unchanged. See
+  ESI only. Corrections apply in Standard and Custom modes; native placement,
+  stored types, masks and caches remain unchanged. See
   docs/minimap-color-audit.md; this supersedes the earlier lava/volcano-only policy.
 - Allow all terrains snapshots its setting per selected-generation run. After native
   firstTerrain/RandTrn matching, the existing parser fallback hook broadens selected

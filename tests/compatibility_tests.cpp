@@ -1209,7 +1209,7 @@ void TestMinimapModeThunk()
     s_colorContinue = reinterpret_cast<DWORD>(MinimapContinueStub);
     DWORD definition[22] = {};
     const DWORD corrections[] = { 114,115,117,120,122,127,129,130,132,136,138,139,140,147,150,151,157,161 };
-    for (int custom = 0; custom < 2; ++custom)
+    for (int custom : { 0, 1, 0 })
     {
         SetCustomObstacleMode(custom != 0);
         for (int passable = 0; passable < 2; ++passable)
@@ -1228,7 +1228,7 @@ void TestMinimapModeThunk()
                 }
                 bool affected = false;
                 for (DWORD type : corrections) affected |= objectType == type;
-                const DWORD expected = custom && !passable && affected ? (objectType == 157 ? 158 : 128) : objectType;
+                const DWORD expected = !passable && affected ? (objectType == 157 ? 158 : 128) : objectType;
                 CHECK(minimapSeenIndex == expected);
                 CHECK(minimapSeenEax == definitionPointer);
                 CHECK((minimapSeenFlags & 1) == (expected < 232 ? 1u : 0u));

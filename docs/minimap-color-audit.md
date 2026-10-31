@@ -26,10 +26,10 @@ This layout is statically verified by the existing IDA database: 0x43CEDB copies
 construction validates DEF key, both passability words and type against the
 original template for all 892 supported records (880 unique DEFs).
 
-In Custom mode, map affected classes with blocked cells to the native blocked
+In both Standard and Custom modes, map affected classes with blocked cells to the native blocked
 color entry (128; retain 157->158 for the existing volcano case). Preserve the
 native path for fully passable definitions, other color classes, unreadable
-records and Standard mode. This avoids darkening passable decorations that share
+records. This avoids darkening passable decorations that share
 classes with supported obstacles. Ignore the unused high sixteen mask bits.
 
 The hook saves registers/flags, passes the definition and local index to a
@@ -46,11 +46,11 @@ terrain's blocked shade, including with Allow all terrains enabled.
   definitions, checking exact corrections, unchanged other indices, preserved
   EAX and native comparison flags. Additional cases cover unreadable/null records,
   blocked bits in either mask word and ignored upper bits.
-- Debug English and Release English/Russian probes construct real native shared
+- Release English/Russian probes construct real native shared
   definitions from all supported templates and call the native color function
   on twelve terrains in Standard/Custom/Standard order: 31,680 comparisons per
-  run, zero failures. All 880 use the correct blocked shade in Custom; returning
-  to Standard reproduces native colors exactly. Stored types/masks are unchanged.
+  run, zero failures. All 880 use the correct blocked shade in both modes,
+  including after switching back to Standard. Stored types/masks are unchanged.
 - A real native definition constructed with a fully passable mask retains its
   normal shade despite using an affected class (139).
 - Native object-limit guards remain intact.
@@ -58,7 +58,7 @@ terrain's blocked shade, including with Allow all terrains enabled.
 The table below records the unique loaded definitions per button. A corrected
 count of zero means that button already had the right native color.
 
-| Button | Supported DEFs | Color corrected in Custom |
+| Button | Supported DEFs | Color corrected in both modes |
 | --- | ---: | ---: |
 | Dirt Mountains | 8 | 0 |
 | Sand Mountains | 6 | 0 |
@@ -182,6 +182,14 @@ count of zero means that button already had the right native color.
 | Crumbled Structures | 4 | 4 |
 | Bones | 10 | 10 |
 
+## Standard mode extension
+
+Minimap correction is independent of the obstacle mode. Standard keeps native
+obstacle placement and still bypasses Custom filters, overlays and fillers.
+Switching Standard/Custom/Standard does not change the corrected shading.
+The same blocked-mask and class guards apply in both modes; the existing hook
+and original-byte validation are unchanged.
+
 ## Maintenance and evidence
 
 Re-run the audit when workbook membership or supported editor data changes;
@@ -191,6 +199,8 @@ the policy. No terrain restrictions or placement weights are involved.
 Ignored evidence: scratch/minimap_supported_rows.json,
 scratch/minimap_audit_counts.json, scratch/all_obstacle_minimap_probe.cpp,
 scratch/all_obstacle_minimap_release_english.txt and
-scratch/all_obstacle_minimap_release_russian.txt. Existing and additional IDA
+scratch/all_obstacle_minimap_release_russian.txt (original Custom-only audit),
+scratch/minimap_both_modes_english.txt and scratch/minimap_both_modes_russian.txt
+(mode-independent correction). Existing and additional IDA
 exports are scratch/ida_minimap.json and scratch/minimap_record_layout*.json.
 Raw game tables, native definition dumps and binaries are not committed.

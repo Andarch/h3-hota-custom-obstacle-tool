@@ -2,7 +2,6 @@
 #include "minimap.h"
 #include "hook.h"
 #include "logger.h"
-#include "obstacle_filter.h"
 
 namespace
 {
@@ -11,7 +10,6 @@ namespace
 
     DWORD __stdcall CorrectObstacleMinimapIndex(DWORD index, DWORD definition)
     {
-        if (!CustomObstacleModeEnabled()) return index;
         // Audited against all 880 supported DEFs in HotA 1.8.1. These native
         // color classes use the normal terrain shade despite blocking cells.
         switch (index)
@@ -71,6 +69,6 @@ bool InstallMinimapColorHook(const TargetProfile& profile, std::string& error)
         error = std::string(site.name) + ": " + HookResultName(result);
         return false;
     }
-    LogMessage("Minimap obstacle color hook installed; correction is active only in Custom mode.");
+    LogMessage("Minimap obstacle color hook installed; correction is active in Standard and Custom modes.");
     return true;
 }
