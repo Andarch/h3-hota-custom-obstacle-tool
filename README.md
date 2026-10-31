@@ -1,12 +1,10 @@
 # HotA Custom Obstacle Tool
 
-Customizable obstacle generation for the HotA Map Editor.
+Customizable obstacle generation for the HotA Map Editor
 
 **Version:** v0.9.1 · **Author:** Andarch
 
-Requires HotA 1.8.1. Supports the validated English and Russian editor builds.
-Current source builds include draft Russian translations for tester review.
-Plugin text follows the editor's English or Russian interface.
+Requires HotA 1.8.1. Supports English and Russian.
 
 The tool adds a Custom mode to the editor's obstacle brush so you can choose which
 obstacles it generates and optionally allow all obstacles to be generated on any
@@ -128,7 +126,6 @@ the editor and delete its EXE, DLL, and any tool-specific INI or log you no long
 The plugin automatically follows the editor's English or Russian menus.
 The launcher uses the selected installation's language setting; before an
 installation is known, its initial prompts follow the Windows display language.
-Restart the editor after changing the installation language.
 
 Russian wording is a first draft. Testers can review the
 [complete English/Russian string list](docs/russian-translation-review.md).
