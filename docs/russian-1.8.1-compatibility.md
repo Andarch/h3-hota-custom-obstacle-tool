@@ -57,8 +57,9 @@ than the caption `Help`. The shared EXE supplies this command in both languages.
 The tool's About command is still enabled after native popup updates.
 
 Brush-section discovery accepts both `Brush` and the native Russian Windows-1251
-bytes CA E8 F1 F2 FC (Кисть). This is discovery compatibility, not translation of
-plugin controls. Plugin text remains English.
+bytes CA E8 F1 F2 FC (Кисть). Version v0.9.1 established discovery compatibility.
+Current source builds also provide draft Russian translations; see the
+[translation review list](russian-translation-review.md).
 
 ## Verification and remaining limits
 
@@ -86,9 +87,11 @@ No original installed game binary was replaced and no user map was edited.
 Ignored evidence: `scratch/russian_generation_{debug,release}.txt`,
 `scratch/russian_release_startup.txt`, and `scratch/english_compatibility_startup.txt`.
 
-The regular Release DLL was locked by a running editor during this work. The
-earlier Release test pair is in `scratch/russian_build/Release/`.
-Version v0.9.1 includes this compatibility update; translations are deferred.
-Its matching Release EXE/DLL pair is in `outputs/v0.9.1/` because the normal
-Release DLL remains locked. Debug/Release builds, suites and v0.9.1 metadata pass.
-The published v0.9 release has not been replaced.
+Version v0.9.1 established Russian-binary compatibility. The initially locked
+Release output has since been rebuilt in the normal Debug/Release folders.
+Draft translations are now included in current source builds. The user confirmed
+that the Release localization build works in the fully Russian VM; Russian wording
+still awaits native-speaker review. The initial missing ucrtbased.dll error was
+resolved by switching from Debug to Release. The earlier
+`outputs/v0.9.1/` and `scratch/russian_build/Release/` compatibility-only pairs
+predate localization. Published releases have not been replaced.

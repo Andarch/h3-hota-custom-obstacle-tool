@@ -7,6 +7,7 @@
 #include "obstacle_variants.h"
 #include "plugin_api.h"
 #include "target_profile.h"
+#include "../shared/localization.h"
 
 #include <string>
 
@@ -63,6 +64,11 @@ extern "C" DWORD WINAPI HotaMapEdPluginInitialize(LPVOID)
         return s_initializeResult;
     }
     LogFormat("Selected HotA module profile: %s", hotaProfile->name);
+    char editorPath[MAX_PATH]{};
+    GetModuleFileNameA(nullptr, editorPath, MAX_PATH);
+    std::string editorDirectory = editorPath;
+    editorDirectory = editorDirectory.substr(0, editorDirectory.find_last_of("\\/"));
+    SetUiLanguage(LanguageForEditorDirectory(editorDirectory.c_str()));
 
     if (!InstallMinimapColorHook(*profile, error))
     {

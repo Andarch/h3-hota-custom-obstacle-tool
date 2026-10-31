@@ -27,14 +27,14 @@ namespace
         wchar_t text[300]{};
         GetWindowTextW(control, text, _countof(text));
 #ifdef _DEBUG
-        foundBuild |= wcscmp(text, L"Debug Build") == 0;
+        foundBuild |= wcscmp(text, UiText("Debug Build")) == 0;
 #else
-        foundBuild |= wcscmp(text, L"Release Build") == 0;
+        foundBuild |= wcscmp(text, UiText("Release Build")) == 0;
 #endif
         foundVersion |= wcscmp(text, L"v0.9.1") == 0;
-        foundAuthor |= wcscmp(text, L"By Andarch") == 0;
+        foundAuthor |= wcscmp(text, UiText("By Andarch")) == 0;
         foundDescription |= wcscmp(text,
-            L"Customizable obstacle generation for the HotA Map Editor") == 0;
+            UiText("Customizable obstacle generation for the HotA Map Editor")) == 0;
         return TRUE;
     }
     bool inspected;
@@ -45,7 +45,7 @@ namespace
         KillTimer(owner, timer);
         wchar_t title[100]{};
         GetWindowTextW(dialog, title, 100);
-        CHECK_ABOUT(wcscmp(title, L"About Custom Obstacle Tool") == 0);
+        CHECK_ABOUT(wcscmp(title, UiText("About Custom Obstacle Tool")) == 0);
         CHECK_ABOUT(GetDlgItem(dialog, IDOK));
         CHECK_ABOUT(GetDlgItem(dialog, IDC_TOOL_REPOSITORY));
         foundVersion = foundAuthor = foundDescription = foundBuild = false;
@@ -81,6 +81,9 @@ void TestAboutCaption(const wchar_t* helpCaption)
     CHECK_ABOUT(GetMenuItemCount(help) == 4);
     CHECK_ABOUT(GetMenuItemID(help, 2) == kNativeAboutCommand);
     CHECK_ABOUT(GetMenuItemID(help, 3) == kAboutCommand);
+    wchar_t label[160]{};
+    GetMenuStringW(help, kAboutCommand, label, 160, MF_BYCOMMAND);
+    CHECK_ABOUT(wcscmp(label, UiText("About Custom Obstacle Tool...")) == 0);
     for (int command : { IDOK, IDCANCEL })
     {
         nativePopupUpdated = false;
@@ -104,4 +107,6 @@ void TestAboutUi()
 {
     TestAboutCaption(L"&Help");
     TestAboutCaption(L"\u0421\u043f\u0440\u0430\u0432\u043a\u0430");
+    CHECK_ABOUT(CurrentUiLanguage() == UiLanguage::Russian);
+    SetUiLanguage(UiLanguage::English);
 }

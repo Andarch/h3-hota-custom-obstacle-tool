@@ -3,8 +3,10 @@
 #include <string>
 
 #include "../plugin/plugin_api.h"
+#include "../shared/localization.h"
 
 #define APP_NAME    "HotACustomObstacleTool"
+#define APP_NAME_W  L"HotACustomObstacleTool"
 #define EDITOR_EXE  "h3hota_maped.exe"
 #define PLUGIN_DLL  "HotACustomObstacleTool.dll"
 #define INI_FILE    "HotaMapEdPlugin.ini"
@@ -20,7 +22,9 @@ static std::string LauncherDir()
 
 static bool HasEditor(const std::string& dir)
 {
-    return GetFileAttributesA((dir + EDITOR_EXE).c_str()) != INVALID_FILE_ATTRIBUTES;
+    const bool found = GetFileAttributesA((dir + EDITOR_EXE).c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (found) SetUiLanguage(LanguageForEditorDirectory(dir.c_str()));
+    return found;
 }
 
 // Searches for the HotA install directory in priority order.
@@ -192,10 +196,10 @@ static std::string FindHotaDir()
     }
 
     // 6. Let the user browse
-    BROWSEINFOA bi = {};
-    bi.lpszTitle = "Select the HotA installation folder (containing " EDITOR_EXE ")";
+    BROWSEINFOW bi = {};
+    bi.lpszTitle = UiText("Select the HotA installation folder (containing " EDITOR_EXE ")");
     bi.ulFlags   = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-    LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+    LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
     if (pidl)
     {
         char browsed[MAX_PATH] = {};
@@ -211,9 +215,9 @@ static std::string FindHotaDir()
                     (launchDir + INI_FILE).c_str());
                 return p;
             }
-            MessageBoxA(nullptr,
-                EDITOR_EXE " was not found in the selected folder.",
-                APP_NAME, MB_ICONERROR);
+            MessageBoxW(nullptr,
+                UiText(EDITOR_EXE " was not found in the selected folder."),
+                APP_NAME_W, MB_ICONERROR);
         }
     }
 
@@ -354,27 +358,43 @@ static bool InjectAndInitializePlugin(
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
+    // Early prompts have no editor language to inspect yet. Prefer the known
+    // installation next to the launcher or in its saved path over Windows UI.
+    SetUiLanguage(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_RUSSIAN
+        ? UiLanguage::Russian : UiLanguage::English);
     std::string launchDir = LauncherDir();
-    std::string dllPath   = launchDir + PLUGIN_DLL;
+    if (!HasEditor(launchDir))
+    {
+        char savedPath[MAX_PATH]{};
+        GetPrivateProfileStringA("Settings", "HotaPath", "", savedPath, MAX_PATH,
+            (launchDir + INI_FILE).c_str());
+        if (savedPath[0])
+        {
+            std::string saved = savedPath;
+            if (saved.back() != '\\') saved += '\\';
+            HasEditor(saved);
+        }
+    }
+    std::string dllPath = launchDir + PLUGIN_DLL;
 
     if (GetFileAttributesA(dllPath.c_str()) == INVALID_FILE_ATTRIBUTES)
     {
-        MessageBoxA(nullptr,
-            PLUGIN_DLL " not found next to the launcher.",
-            APP_NAME, MB_ICONERROR);
+        MessageBoxW(nullptr,
+            UiText(PLUGIN_DLL " not found next to the launcher."),
+            APP_NAME_W, MB_ICONERROR);
         return 1;
     }
 
     std::string hotaDir = FindHotaDir();
     if (hotaDir.empty())
     {
-        MessageBoxA(nullptr,
-            "Could not find the HotA installation folder.\n\n"
+        MessageBoxW(nullptr,
+            UiText("Could not find the HotA installation folder.\n\n"
             "Place the launcher in your HotA directory, or add a line to\n"
             INI_FILE " next to the launcher:\n"
             "  [Settings]\n"
-            "  HotaPath=C:\\Path\\To\\HotA",
-            APP_NAME, MB_ICONERROR);
+            "  HotaPath=C:\\Path\\To\\HotA"),
+            APP_NAME_W, MB_ICONERROR);
         return 1;
     }
 
@@ -387,7 +407,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
     if (!CreateProcessA(exePath.c_str(), nullptr, nullptr, nullptr, FALSE,
                         0, nullptr, hotaDir.c_str(), &si, &pi))
     {
-        MessageBoxA(nullptr, "Failed to launch " EDITOR_EXE ".", APP_NAME, MB_ICONERROR);
+        MessageBoxW(nullptr, UiText("Failed to launch " EDITOR_EXE "."), APP_NAME_W, MB_ICONERROR);
         return 1;
     }
 
@@ -410,7 +430,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
         {
             injectError += "\n\nThe editor will continue without the plugin.";
         }
-        MessageBoxA(nullptr, injectError.c_str(), APP_NAME, MB_ICONERROR);
+        MessageBoxW(nullptr, UiMessage(injectError).c_str(), APP_NAME_W, MB_ICONERROR);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return 1;

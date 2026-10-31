@@ -93,6 +93,13 @@
   <ItemGroup>
     <ResourceCompile Include="..\resources\version.rc" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\shared\localization.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClInclude Include="..\shared\localization.h" />
+    <None Include="..\shared\localization_strings.inc" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
 </Project>

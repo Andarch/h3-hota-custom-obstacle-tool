@@ -5,7 +5,8 @@ Customizable obstacle generation for the HotA Map Editor.
 **Version:** v0.9.1 · **Author:** Andarch
 
 Requires HotA 1.8.1. Supports the validated English and Russian editor builds.
-Plugin controls remain English; translations are planned for a later version.
+Current source builds include draft Russian translations for tester review.
+Plugin text follows the editor's English or Russian interface.
 
 The tool adds a Custom mode to the editor's obstacle brush so you can choose which
 obstacles it generates and optionally allow all obstacles to be generated on any
@@ -103,6 +104,7 @@ mode, or the terrain option does not remove or replace existing objects.
 | Problem | What to check |
 | --- | --- |
 | Missing `MSVCP140.dll` or `VCRUNTIME140.dll`, or the launcher cannot start | Install or repair the latest Microsoft Visual C++ v14 **x86** Redistributable linked above. |
+| Missing `ucrtbased.dll`, `MSVCP140D.dll` or `VCRUNTIME140D.dll` | Use the matching EXE/DLL from the **Release** build. Debug builds require developer runtimes and are not distribution packages. |
 | Plugin DLL not found | Extract the ZIP and keep the matching EXE and DLL in the same folder. |
 | HotA cannot be found | Select the folder containing `h3hota_maped.exe`, or set `HotaPath` in the INI. |
 | Unsupported editor or DLL version | Use the official HotA 1.8.1 editor and its matching `hota_me.dll`. Modified binaries may fail validation. |
@@ -120,6 +122,22 @@ affected session, if available.
 Close the editor before replacing the EXE and DLL with a matching newer pair.
 To stop using the plugin, start the editor directly. To remove the tool, close
 the editor and delete its EXE, DLL, and any tool-specific INI or log you no longer need.
+
+## Russian translation feedback
+
+The plugin automatically follows the editor's English or Russian menus.
+The launcher uses the selected installation's language setting; before an
+installation is known, its initial prompts follow the Windows display language.
+Restart the editor after changing the installation language.
+
+Russian wording is a first draft. Testers can review the
+[complete English/Russian string list](docs/russian-translation-review.md).
+When reporting a correction, include the English entry, the suggested Russian
+wording, and a screenshot if the text does not fit. Product names, filenames,
+keyboard shortcuts and diagnostic logs retain their original spelling.
+The plugin's Unicode text does not fix encoding issues in the native editor;
+legacy Russian installations may still require Russian as the Windows language
+for non-Unicode programs.
 
 ## Development
 

@@ -96,3 +96,19 @@ hook RVAs, unchanged table/stack layout, native Russian brush-label discovery,
 and Help discovery by the native About command with either English or Russian
 captions. Runtime evidence and limits are in
 [Russian compatibility notes](../docs/russian-1.8.1-compatibility.md).
+
+Localization tests use both English and Russian menus, including native ANSI
+Windows-1251 captions, and verify that actual menus override installation hints.
+They cover missing/invalid INI values, English fallback with stable text pointers,
+all 121 obstacle names and twelve categories, Cyrillic radios/checkboxes/tooltips,
+radio text fit, wrapped caption/terrain-icon bounds, localized About content,
+and composite launcher errors. No Windows locale is changed by these tests.
+
+Check translation coverage and generated artifacts with:
+
+```powershell
+python tools/generate_translations.py --check
+```
+
+Edit Russian values in `translations/ru.json`, then run the same command without
+`--check` to regenerate the compiled table and tester review list.

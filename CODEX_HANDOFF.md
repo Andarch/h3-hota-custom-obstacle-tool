@@ -25,8 +25,23 @@ Last updated: 2026-10-30
 ## User interface
 
 - Native Help lookup uses ID_APP_ABOUT (0xE140), independent of the menu language.
-  Brush discovery accepts English and native Russian Windows-1251 text. This enables
-  UI discovery only; all plugin strings remain English pending localization.
+  Brush discovery accepts English and native Russian Windows-1251 text.
+- Draft English/Russian UI localization is implemented in shared/localization.*.
+  Native File/Help menu captions (Unicode or native Windows-1251 bytes) determine
+  plugin language; HotA_Setup.ini [Global Settings] Language=0/1 is the startup
+  fallback. Launcher messages use the selected installation setting, with Windows
+  UI language only before an installation is known. Do not infer UI language from
+  the module hash: a Russian DLL with English data can show English menus.
+- translations/ru.json is the editable translation source: 176 strings, including
+  121 obstacle names and twelve categories. Run tools/generate_translations.py to
+  regenerate shared/localization_strings.inc and docs/russian-translation-review.md;
+  --check validates coverage and generated files. English metadata/DEF identities
+  stay unchanged. Unknown names fall back to English. Logs remain English.
+- Plugin labels, owner-drawn headers/previews and all tooltips use Unicode.
+  Runtime verified: the host's common-controls v5 rejects sizeof(TOOLINFOW)=48 for
+  TTM_ADDTOOLW but accepts TTTOOLINFOW_V2_SIZE=44. Use V2 for these tooltip messages.
+  Preview captions wrap to measured height and move terrain icons down accordingly.
+  Mode radio widths account for translated text. Russian phrasing awaits tester review.
 - Help > About Custom Obstacle Tool... is available in both modes, after the
   existing native About item. The owner-thread menu subclass opens a centered
   modal native dialog with v0.9.1, build configuration, author Andarch, description,
@@ -177,12 +192,21 @@ remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
   pass with the supplied Russian DLL and local English game data. User confirmed
   the compatibility build works in the Russian VM. This is functional acceptance,
   not exhaustive saved-map regression evidence. v0.9.1 includes compatibility;
-  actual translations remain deferred. Published v0.9 has not been replaced.
-  The normal Release DLL is locked by an open editor. The matching v0.9.1 Release
-  EXE/DLL pair is under `outputs/v0.9.1/`; both metadata resources and Debug/Release
-  tests were verified after the version bump. Do not package the stale normal
-  Release DLL. The earlier VM test pair is under `scratch/russian_build/Release/`.
+  draft translations are now included in current working builds. Published releases
+  have not been replaced. The normal Debug/Release output folders were rebuilt
+  after the editor closed. Older compatibility-only test pairs remain under
+  outputs/v0.9.1/ and scratch/russian_build/Release/; do not use those for translation tests.
 
+- Localization checks: Debug/Release builds and suites cover detection overriding
+  startup hints, English fallback, every translated category/button, Cyrillic
+  controls and tooltips, mode-label fit, wrapped caption/icon bounds, both About
+  languages and composite launcher errors. The actual Release launcher missing-DLL
+  dialog was verified in Russian on English Windows using installation Language=1.
+  Russian About/panel/preview layouts were visually inspected. Isolated production
+  startup passes with both module profiles and English data. User confirmed the
+  Release localization build works in the fully Russian VM; native-speaker wording
+  review remains pending. A missing ucrtbased.dll error came from using Debug;
+  verified Release EXE/DLL imports do not depend on the debug runtime.
 - About addition: Debug/Release builds and compatibility suites pass, including
   native-menu preservation, duplicate-install prevention, actual modal resource,
   exact content, centering, OK and Escape. Runtime verified in an isolated 1.8.1

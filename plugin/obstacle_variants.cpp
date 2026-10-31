@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "obstacle_variants.h"
 #include "about.h"
+#include "../shared/localization.h"
 
 #include "logger.h"
 #include "hook.h"
@@ -45,7 +46,6 @@ namespace
     constexpr UINT_PTR kCategoryRefreshTimerId = 1;
     constexpr UINT_PTR kCategoryPreviewTimerId = 2;
     constexpr DWORD kCategoryPreviewDelayMs = 250;
-    char kPlaceOverlayTooltip[] = "Place Obstacles [Shift+O]";
 
     struct VariantPanel
     {
@@ -1427,9 +1427,9 @@ namespace
             const int count = SelectedCountForCategory(category);
             if (count == state->selectedCounts[category]) continue;
             state->selectedCounts[category] = count;
-            char caption[128] = {};
-            sprintf_s(caption, "%s (%d)", ObstacleCategoryName(category), count);
-            SetWindowTextA(state->headers[category], caption);
+            wchar_t caption[160] = {};
+            swprintf_s(caption, L"%ls (%d)", UiText(ObstacleCategoryName(category)), count);
+            SetWindowTextW(state->headers[category], caption);
             InvalidateRect(state->headers[category], nullptr, FALSE);
         }
     }
@@ -1548,13 +1548,13 @@ namespace
 
         if (state.selectionTooltip && state.selectionButtons[kExpansionAction])
         {
-            TOOLINFOA tool = {};
-            tool.cbSize = sizeof(tool);
+            TOOLINFOW tool = {};
+            tool.cbSize = TTTOOLINFOW_V2_SIZE;
             tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
             tool.hwnd = state.globalHost;
             tool.uId = reinterpret_cast<UINT_PTR>(state.selectionButtons[kExpansionAction]);
-            tool.lpszText = const_cast<char*>(ExpansionActionText());
-            SendMessageA(state.selectionTooltip, TTM_UPDATETIPTEXTA, 0, reinterpret_cast<LPARAM>(&tool));
+            tool.lpszText = const_cast<wchar_t*>(UiText(ExpansionActionText()));
+            SendMessageW(state.selectionTooltip, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&tool));
         }
 
         for (int category = 0; category < kObstacleCategoryCount; ++category)
@@ -1691,19 +1691,31 @@ namespace
             WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, 22,
             parent, nullptr, s_pluginModule, state);
         if (!host) { delete state; return nullptr; }
-        state->tooltip = CreateWindowExA(WS_EX_TOPMOST, TOOLTIPS_CLASSA, nullptr,
+        state->tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
             WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
             host, nullptr, s_pluginModule, nullptr);
         bool created = state->tooltip != nullptr;
         if (created) SendMessageA(state->tooltip, TTM_SETMAXTIPWIDTH, 0, 260);
-        static char standardTip[] = "Use the editor's native obstacle placement.";
-        static char customTip[] = "Customize which obstacle types can be generated.";
-        const int radioWidth = width / 2 < 88 ? width / 2 : 88;
+        const wchar_t* standardTip = UiText("Use the editor's native obstacle placement.");
+        const wchar_t* customTip = UiText("Customize which obstacle types can be generated.");
+        HDC textDc = GetDC(host);
+        HGDIOBJ oldFont = SelectObject(textDc, font ? font : GetStockObject(DEFAULT_GUI_FONT));
+        int desiredRadioWidth = 88;
+        for (const char* name : { "Standard", "Custom" })
+        {
+            const wchar_t* label = UiText(name);
+            SIZE extent{};
+            GetTextExtentPoint32W(textDc, label, static_cast<int>(wcslen(label)), &extent);
+            desiredRadioWidth = max(desiredRadioWidth, extent.cx + 24);
+        }
+        SelectObject(textDc, oldFont);
+        ReleaseDC(host, textDc);
+        const int radioWidth = min(width / 2, desiredRadioWidth);
         for (int index = 0; created && index < 2; ++index)
         {
             // Keep the options together on wide panels and fit narrow panels.
-            state->radios[index] = CreateWindowExA(0, "BUTTON", index ? "Custom" : "Standard",
+            state->radios[index] = CreateWindowExW(0, L"BUTTON", UiText(index ? "Custom" : "Standard"),
                 WS_CHILD | WS_VISIBLE | BS_RADIOBUTTON, index * radioWidth, 0,
                 radioWidth, 22, host, reinterpret_cast<HMENU>(static_cast<INT_PTR>(index + 1)),
                 s_pluginModule, nullptr);
@@ -1714,13 +1726,13 @@ namespace
                 reinterpret_cast<WPARAM>(font ? font : GetStockObject(DEFAULT_GUI_FONT)), TRUE);
             SendMessageA(radio, BM_SETCHECK,
                 CustomObstacleModeEnabled() == (index == 1) ? BST_CHECKED : BST_UNCHECKED, 0);
-            TOOLINFOA tool = {};
-            tool.cbSize = sizeof(tool);
+            TOOLINFOW tool = {};
+            tool.cbSize = TTTOOLINFOW_V2_SIZE;
             tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
             tool.hwnd = host;
             tool.uId = reinterpret_cast<UINT_PTR>(radio);
-            tool.lpszText = index ? customTip : standardTip;
-            created = SendMessageA(state->tooltip, TTM_ADDTOOLA, 0,
+            tool.lpszText = const_cast<wchar_t*>(index ? customTip : standardTip);
+            created = SendMessageW(state->tooltip, TTM_ADDTOOLW, 0,
                 reinterpret_cast<LPARAM>(&tool)) != FALSE;
         }
         if (!created) { DestroyWindow(host); return nullptr; }
@@ -1878,10 +1890,10 @@ namespace
             HGDIOBJ oldFont = SelectObject(draw->hDC, font ? font : GetStockObject(DEFAULT_GUI_FONT));
             SetBkMode(draw->hDC, TRANSPARENT);
             SetTextColor(draw->hDC, GetSysColor(COLOR_BTNTEXT));
-            char caption[128] = {};
-            GetWindowTextA(draw->hwndItem, caption, _countof(caption));
+            wchar_t caption[160] = {};
+            GetWindowTextW(draw->hwndItem, caption, _countof(caption));
             rect.left += 19;
-            DrawTextA(draw->hDC, caption, -1, &rect,
+            DrawTextW(draw->hDC, caption, -1, &rect,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
             SelectObject(draw->hDC, oldFont);
             return TRUE;
@@ -2093,7 +2105,7 @@ namespace
         createdAll = createdAll && scrollState->headerFont && scrollState->headerBoldFont;
         for (int category = 0; createdAll && category < kObstacleCategoryCount; ++category)
         {
-            HWND header = CreateWindowExA(0, "BUTTON", "",
+            HWND header = CreateWindowExW(0, L"BUTTON", L"",
                 WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
                 0, scrollState->headerY[category], client.right,
                 kCategoryHeaderHeight, host,
@@ -2155,7 +2167,7 @@ namespace
             DestroyWindow(hwnd);
             return nullptr;
         }
-        state->allTerrainsCheckbox = CreateWindowExA(0, "BUTTON", "Allow all terrains",
+        state->allTerrainsCheckbox = CreateWindowExW(0, L"BUTTON", UiText("Allow all terrains"),
             WS_CHILD | WS_VISIBLE | BS_CHECKBOX, 0, 0, rect.right - rect.left,
             kAllTerrainsOptionHeight, state->globalHost,
             reinterpret_cast<HMENU>(kAllTerrainsCommand), s_pluginModule, nullptr);
@@ -2218,9 +2230,9 @@ namespace
 
     HWND CreatePlaceOverlayTooltip(HWND sourceToolbar, HWND overlay)
     {
-        HWND tooltip = CreateWindowExA(
+        HWND tooltip = CreateWindowExW(
             WS_EX_TOPMOST,
-            TOOLTIPS_CLASSA,
+            TOOLTIPS_CLASSW,
             nullptr,
             WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
             CW_USEDEFAULT,
@@ -2234,13 +2246,14 @@ namespace
         if (!tooltip)
             return nullptr;
 
-        TOOLINFOA tool = {};
-        tool.cbSize = sizeof(tool);
+        SendMessageW(tooltip, TTM_SETMAXTIPWIDTH, 0, 300);
+        TOOLINFOW tool = {};
+        tool.cbSize = TTTOOLINFOW_V2_SIZE;
         tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
         tool.hwnd = sourceToolbar;
         tool.uId = reinterpret_cast<UINT_PTR>(overlay);
-        tool.lpszText = kPlaceOverlayTooltip;
-        if (!SendMessageA(tooltip, TTM_ADDTOOLA, 0, reinterpret_cast<LPARAM>(&tool)))
+        tool.lpszText = const_cast<wchar_t*>(UiText("Place Obstacles [Shift+O]"));
+        if (!SendMessageW(tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool)))
         {
             DestroyWindow(tooltip);
             return nullptr;
@@ -2601,7 +2614,7 @@ namespace
 
         panel.scrollHost = CreateScrollHost(parent, scrollRect);
         HFONT brushFont = reinterpret_cast<HFONT>(SendMessageA(brushLabel, WM_GETFONT, 0, 0));
-        panel.modeLabel = CreateWindowExA(0, "STATIC", "Mode",
+        panel.modeLabel = CreateWindowExW(0, L"STATIC", UiText("Mode"),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
             brushLabelRect.left, modeLabelY, labelWidth, labelHeight, parent, nullptr, s_pluginModule, nullptr);
         if (panel.modeLabel && brushFont)
@@ -2637,25 +2650,26 @@ namespace
         if (createdAll && scrollState)
         {
             scrollState->sourceToolbar = toolbar;
-            scrollState->selectionTooltip = CreateWindowExA(WS_EX_TOPMOST,
-                TOOLTIPS_CLASSA, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            scrollState->selectionTooltip = CreateWindowExW(WS_EX_TOPMOST,
+                TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
                 CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
                 panel.scrollHost, nullptr, s_pluginModule, nullptr);
             createdAll = scrollState->selectionTooltip != nullptr;
+            if (createdAll) SendMessageW(scrollState->selectionTooltip, TTM_SETMAXTIPWIDTH, 0, 300);
             if (createdAll)
             {
-                static char allTerrainsTip[] = "Allow selected obstacles on any terrain except Rock/Void.";
-                TOOLINFOA tool = {};
-                tool.cbSize = sizeof(tool);
+                const wchar_t* allTerrainsTip = UiText("Allow selected obstacles on any terrain except Rock/Void.");
+                TOOLINFOW tool = {};
+                tool.cbSize = TTTOOLINFOW_V2_SIZE;
                 tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
                 tool.hwnd = scrollState->globalHost;
                 tool.uId = reinterpret_cast<UINT_PTR>(scrollState->allTerrainsCheckbox);
-                tool.lpszText = allTerrainsTip;
-                createdAll = SendMessageA(scrollState->selectionTooltip, TTM_ADDTOOLA,
+                tool.lpszText = const_cast<wchar_t*>(allTerrainsTip);
+                createdAll = SendMessageW(scrollState->selectionTooltip, TTM_ADDTOOLW,
                     0, reinterpret_cast<LPARAM>(&tool)) != FALSE;
             }
-            static char allText[] = "Select All";
-            static char noneText[] = "Select None";
+            const wchar_t* allText = UiText("Select All");
+            const wchar_t* noneText = UiText("Select None");
             for (int action = 0; createdAll && action < kSelectionActionCount; ++action)
             {
                 const bool global = action >= kGlobalSelectionAction;
@@ -2674,14 +2688,14 @@ namespace
                 if (!createdAll) break;
                 SendMessageA(button, WM_SETFONT,
                     reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
-                TOOLINFOA tool = {};
-                tool.cbSize = sizeof(tool);
+                TOOLINFOW tool = {};
+                tool.cbSize = TTTOOLINFOW_V2_SIZE;
                 tool.uFlags = TTF_SUBCLASS | TTF_IDISHWND;
                 tool.hwnd = global ? scrollState->globalHost : panel.scrollHost;
                 tool.uId = reinterpret_cast<UINT_PTR>(button);
-                tool.lpszText = action == kExpansionAction ? const_cast<char*>(ExpansionActionText()) :
-                    action % 2 ? noneText : allText;
-                createdAll = SendMessageA(scrollState->selectionTooltip, TTM_ADDTOOLA,
+                tool.lpszText = action == kExpansionAction ? const_cast<wchar_t*>(UiText(ExpansionActionText())) :
+                    const_cast<wchar_t*>(action % 2 ? noneText : allText);
+                createdAll = SendMessageW(scrollState->selectionTooltip, TTM_ADDTOOLW,
                     0, reinterpret_cast<LPARAM>(&tool)) != FALSE;
             }
         }

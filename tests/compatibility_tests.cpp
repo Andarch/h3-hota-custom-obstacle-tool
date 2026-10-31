@@ -606,6 +606,10 @@ int main()
     CHECK(TryReadCandidateRecordRowId(reinterpret_cast<DWORD>(wrapper), actual));
     CHECK(actual == 200);
 
+    extern void TestLocalization();
+    TestLocalization();
+    extern void TestRussianObstacleControls();
+    TestRussianObstacleControls();
     extern void TestAboutUi();
     TestAboutUi();
     TestButtonSelectionCapacity();

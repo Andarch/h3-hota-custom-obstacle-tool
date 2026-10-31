@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "obstacle_preview.h"
+#include "../shared/localization.h"
 
 #include "logger.h"
 #include "obstacle_button_data.h"
@@ -82,12 +83,25 @@ namespace
     bool s_terrainBitmapAttempted = false;
     HBITMAP s_terrainBitmap = nullptr;
 
-    const char* PreviewCaptionForButton(int buttonIndex)
+    const wchar_t* PreviewCaptionForButton(int buttonIndex)
     {
-        return ObstacleButtonName(buttonIndex);
+        return UiText(ObstacleButtonName(buttonIndex));
     }
 
-    TerrainIconLayout BuildTerrainIconLayout(DWORD terrainMask)
+    int PreviewCaptionHeightForButton(int buttonIndex)
+    {
+        HDC dc = GetDC(nullptr);
+        HGDIOBJ font = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+        RECT text = { 0, 0, kPreviewWindowWidth - 2 *
+            (kPreviewBorderExtent + kPreviewCaptionHorizontalPadding), 0 };
+        DrawTextW(dc, PreviewCaptionForButton(buttonIndex), -1, &text,
+            DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+        SelectObject(dc, font);
+        ReleaseDC(nullptr, dc);
+        return max(kPreviewCaptionExtent, text.bottom - text.top + 8);
+    }
+
+    TerrainIconLayout BuildTerrainIconLayout(DWORD terrainMask, int captionExtent = kPreviewCaptionExtent)
     {
         TerrainIconLayout layout;
         for (const TerrainBitmapCell& terrain : kTerrainBitmapCells)
@@ -101,7 +115,8 @@ namespace
             {
                 kPreviewBorderExtent + kTerrainHorizontalPadding +
                     column * (kTerrainIconExtent + kTerrainIconGap),
-                kTerrainIconTop + row * (kTerrainIconExtent + kTerrainIconGap),
+                kTerrainIconTop + captionExtent - kPreviewCaptionExtent +
+                    row * (kTerrainIconExtent + kTerrainIconGap),
                 0,
                 0,
             };
@@ -115,11 +130,11 @@ namespace
         return layout;
     }
 
-    int PreviewWindowHeightForRows(int rowCount)
+    int PreviewWindowHeightForRows(int rowCount, int captionExtent = kPreviewCaptionExtent)
     {
         if (rowCount <= 0)
-            return kPreviewMinimumHeight;
-        return kTerrainIconTop + rowCount * kTerrainIconExtent +
+            return kPreviewImageAreaExtent + captionExtent;
+        return kTerrainIconTop + captionExtent - kPreviewCaptionExtent + rowCount * kTerrainIconExtent +
             (rowCount - 1) * kTerrainIconGap + kTerrainBottomPadding +
             kPreviewBorderExtent;
     }
@@ -131,7 +146,8 @@ namespace
         if (!definition)
             return kPreviewMinimumHeight;
         return PreviewWindowHeightForRows(
-            BuildTerrainIconLayout(EffectiveObstacleTerrainMask(definition->terrainMask)).rowCount);
+            BuildTerrainIconLayout(EffectiveObstacleTerrainMask(definition->terrainMask)).rowCount,
+            PreviewCaptionHeightForButton(buttonIndex));
     }
 
 #ifdef _DEBUG
@@ -226,9 +242,9 @@ namespace
         return s_terrainBitmap;
     }
 
-    void DrawTerrainIcons(HDC hdc, DWORD terrainMask)
+    void DrawTerrainIcons(HDC hdc, DWORD terrainMask, int captionExtent)
     {
-        const TerrainIconLayout layout = BuildTerrainIconLayout(terrainMask);
+        const TerrainIconLayout layout = BuildTerrainIconLayout(terrainMask, captionExtent);
         if (!layout.count)
             return;
         HBITMAP bitmap = TerrainBitmap();
@@ -303,6 +319,8 @@ namespace
 
     void DrawPreviewWindow(HDC hdc)
     {
+        const int captionExtent = PreviewCaptionHeightForButton(s_previewButtonIndex);
+        const int captionBottom = kPreviewImageAreaExtent + captionExtent - kPreviewBorderExtent;
         RECT rect = {};
         GetClientRect(s_previewWindow, &rect);
 
@@ -370,15 +388,15 @@ namespace
         RECT captionRuleRect =
         {
             kPreviewBorderExtent,
-            kPreviewCaptionBottom,
+            captionBottom,
             rect.right - kPreviewBorderExtent,
-            kTerrainRuleBottom,
+            captionBottom + kTerrainRuleExtent,
         };
         HBRUSH captionRule = CreateSolidBrush(RGB(160, 160, 160));
         FillRect(hdc, &captionRuleRect, captionRule);
         DeleteObject(captionRule);
 
-        const char* caption = PreviewCaptionForButton(s_previewButtonIndex);
+        const wchar_t* caption = PreviewCaptionForButton(s_previewButtonIndex);
         if (caption)
         {
             RECT captionRect =
@@ -386,25 +404,28 @@ namespace
                 kPreviewBorderExtent + kPreviewCaptionHorizontalPadding,
                 kPreviewImageAreaExtent,
                 rect.right - kPreviewBorderExtent - kPreviewCaptionHorizontalPadding,
-                kPreviewCaptionBottom,
+                captionBottom,
             };
             HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
             HGDIOBJ oldFont = SelectObject(hdc, font);
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(0, 0, 0));
-            DrawTextA(
+            RECT measured = captionRect;
+            DrawTextW(hdc, caption, -1, &measured, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+            captionRect.top += max(0, (captionRect.bottom - captionRect.top - (measured.bottom - measured.top)) / 2);
+            DrawTextW(
                 hdc,
                 caption,
                 -1,
                 &captionRect,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
             SelectObject(hdc, oldFont);
         }
 
         const ObstacleButtonDefinition* definition =
             ObstacleButtonDefinitionAt(s_previewButtonIndex);
         if (definition)
-            DrawTerrainIcons(hdc, EffectiveObstacleTerrainMask(definition->terrainMask));
+            DrawTerrainIcons(hdc, EffectiveObstacleTerrainMask(definition->terrainMask), captionExtent);
     }
 
     LRESULT CALLBACK PreviewWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)

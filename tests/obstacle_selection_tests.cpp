@@ -153,16 +153,16 @@ void TestObstacleCategorySections()
             CHECK_SELECTION(state->selectionButtons[action]);
             CHECK_SELECTION(SetWindowSubclass(state->selectionButtons[action], SelectionButtonSubclass, 1, 0));
         }
-        state->selectionTooltip = CreateWindowExA(0, TOOLTIPS_CLASSA, nullptr,
+        state->selectionTooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr,
             WS_POPUP | TTS_ALWAYSTIP, 0, 0, 0, 0, host, nullptr, s_pluginModule, nullptr);
         CHECK_SELECTION(state->selectionTooltip);
-        TOOLINFOA tool = {};
-        tool.cbSize = sizeof(tool);
+        TOOLINFOW tool = {};
+        tool.cbSize = TTTOOLINFOW_V2_SIZE;
         tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
         tool.hwnd = state->globalHost;
         tool.uId = reinterpret_cast<UINT_PTR>(state->selectionButtons[kExpansionAction]);
-        tool.lpszText = const_cast<char*>(ExpansionActionText());
-        CHECK_SELECTION(SendMessageA(state->selectionTooltip, TTM_ADDTOOLA, 0,
+        tool.lpszText = const_cast<wchar_t*>(UiText(ExpansionActionText()));
+        CHECK_SELECTION(SendMessageW(state->selectionTooltip, TTM_ADDTOOLW, 0,
             reinterpret_cast<LPARAM>(&tool)));
         LayoutScrollHost(host, *state);
         return host;
@@ -294,14 +294,14 @@ void TestObstacleCategorySections()
         CHECK_SELECTION(memcmp(checkedBeforeToggle, s_categoryChecked, sizeof(checkedBeforeToggle)) == 0);
     };
     auto checkTooltip = [&]() {
-        char text[80] = {};
-        TOOLINFOA tool = {};
-        tool.cbSize = sizeof(tool);
+        wchar_t text[80] = {};
+        TOOLINFOW tool = {};
+        tool.cbSize = TTTOOLINFOW_V2_SIZE;
         tool.hwnd = state->globalHost;
         tool.uId = reinterpret_cast<UINT_PTR>(toggle);
         tool.lpszText = text;
-        SendMessageA(state->selectionTooltip, TTM_GETTEXTA, sizeof(text), reinterpret_cast<LPARAM>(&tool));
-        CHECK_SELECTION(strcmp(text, ExpansionActionText()) == 0);
+        SendMessageW(state->selectionTooltip, TTM_GETTEXTW, _countof(text), reinterpret_cast<LPARAM>(&tool));
+        CHECK_SELECTION(wcscmp(text, UiText(ExpansionActionText())) == 0);
     };
     CHECK_SELECTION(strcmp(ExpansionActionText(), "Expand All") == 0);
     checkTooltip();
@@ -403,17 +403,18 @@ void TestObstacleModeControls()
         CHECK_SELECTION(SendMessageA(mode->tooltip, TTM_GETTOOLCOUNT, 0, 0) == 2);
         for (int index = 0; index < 2; ++index)
         {
-            char caption[32] = {}, tip[128] = {};
+            char caption[32] = {};
+            wchar_t tip[128] = {};
             GetWindowTextA(mode->radios[index], caption, sizeof(caption));
             CHECK_SELECTION(strcmp(caption, index ? "Custom" : "Standard") == 0);
-            TOOLINFOA tool = {};
-            tool.cbSize = sizeof(tool);
+            TOOLINFOW tool = {};
+            tool.cbSize = TTTOOLINFOW_V2_SIZE;
             tool.hwnd = panel.modeHost;
             tool.uId = reinterpret_cast<UINT_PTR>(mode->radios[index]);
             tool.lpszText = tip;
-            SendMessageA(mode->tooltip, TTM_GETTEXTA, sizeof(tip), reinterpret_cast<LPARAM>(&tool));
-            CHECK_SELECTION(strcmp(tip, index ? "Customize which obstacle types can be generated." :
-                "Use the editor's native obstacle placement.") == 0);
+            SendMessageW(mode->tooltip, TTM_GETTEXTW, _countof(tip), reinterpret_cast<LPARAM>(&tool));
+            CHECK_SELECTION(wcscmp(tip, UiText(index ? "Customize which obstacle types can be generated." :
+                "Use the editor's native obstacle placement.")) == 0);
         }
     };
     checkModeTooltips();
@@ -486,4 +487,45 @@ void TestObstacleModeControls()
     VariantGetMessageHook(0, PM_REMOVE, reinterpret_cast<LPARAM>(&command));
     CHECK_SELECTION(command.message == WM_COMMAND && command.wParam == kVanillaPlaceObstaclesCommand);
     DestroyWindow(parent);
+}
+
+void TestRussianObstacleControls()
+{
+    SetUiLanguage(UiLanguage::Russian);
+    HWND owner = CreateWindowExW(0, L"STATIC", L"Russian controls", WS_OVERLAPPEDWINDOW,
+        50, 50, 350, 650, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    CHECK_SELECTION(owner);
+    HWND modeHost = CreateModeHost(owner, 10, 10, 200, nullptr);
+    CHECK_SELECTION(modeHost);
+    auto* mode = reinterpret_cast<ModeHostState*>(GetWindowLongPtrA(modeHost, GWLP_USERDATA));
+    for (int i = 0; i < 2; ++i)
+    {
+        wchar_t caption[128]{}, tip[256]{};
+        GetWindowTextW(mode->radios[i], caption, 128);
+        CHECK_SELECTION(wcscmp(caption, UiText(i ? "Custom" : "Standard")) == 0);
+        TOOLINFOW info{}; info.cbSize = TTTOOLINFOW_V2_SIZE; info.hwnd = modeHost;
+        info.uId = reinterpret_cast<UINT_PTR>(mode->radios[i]); info.lpszText = tip;
+        SendMessageW(mode->tooltip, TTM_GETTEXTW, 256, reinterpret_cast<LPARAM>(&info));
+        CHECK_SELECTION(wcscmp(tip, UiText(i ? "Customize which obstacle types can be generated." :
+            "Use the editor's native obstacle placement.")) == 0);
+        HDC dc = GetDC(mode->radios[i]);
+        auto font = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+        SIZE text{}; GetTextExtentPoint32W(dc, caption, static_cast<int>(wcslen(caption)), &text);
+        RECT bounds{}; GetClientRect(mode->radios[i], &bounds);
+        CHECK_SELECTION(text.cx + 18 <= bounds.right);
+        SelectObject(dc, font); ReleaseDC(mode->radios[i], dc);
+    }
+    RECT viewport{ 10, 50, 210, 600 };
+    HWND host = CreateScrollHost(owner, viewport);
+    CHECK_SELECTION(host && CreateCategoryHeaders(host, nullptr));
+    auto* state = ScrollHostStateFromWindow(host);
+    wchar_t caption[160]{};
+    GetWindowTextW(state->allTerrainsCheckbox, caption, 160);
+    CHECK_SELECTION(wcscmp(caption, UiText("Allow all terrains")) == 0);
+    GetWindowTextW(state->headers[0], caption, 160);
+    CHECK_SELECTION(wcsstr(caption, UiText("Mountains")) == caption);
+    const char* original = ObstacleButtonName(0);
+    CHECK_SELECTION(strcmp(original, "Dirt Mountains") == 0);
+    DestroyWindow(owner);
+    SetUiLanguage(UiLanguage::English);
 }

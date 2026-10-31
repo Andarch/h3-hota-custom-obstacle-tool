@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "about.h"
+#include "../shared/localization.h"
 #include "about_resource.h"
 #include "../resources/version.h"
 #include "logger.h"
@@ -20,6 +21,17 @@ namespace
     {
         if (message == WM_INITDIALOG)
         {
+            SetWindowTextW(dialog, UiText("About Custom Obstacle Tool"));
+#ifdef _DEBUG
+            SetDlgItemTextW(dialog, IDC_TOOL_BUILD, UiText("Debug Build"));
+#else
+            SetDlgItemTextW(dialog, IDC_TOOL_BUILD, UiText("Release Build"));
+#endif
+            SetDlgItemTextW(dialog, IDC_TOOL_AUTHOR, UiText(TOOL_CREDIT));
+            SetDlgItemTextW(dialog, IDC_TOOL_DESCRIPTION, UiText(TOOL_DESCRIPTION));
+            SetDlgItemTextW(dialog, IDOK, UiText("OK"));
+            const std::wstring link = std::wstring(L"<a>") + UiText("GitHub repository") + L"</a>";
+            SetDlgItemTextW(dialog, IDC_TOOL_REPOSITORY, link.c_str());
             RECT bounds{}, ownerBounds{};
             GetWindowRect(dialog, &bounds);
             HWND owner = GetParent(dialog);
@@ -114,6 +126,7 @@ UINT AboutInstallMessage()
 bool InstallAboutMenu(HWND owner)
 {
     // Called only by the owning UI thread, including when Standard mode is active.
+    DetectEditorUiLanguage(owner);
     if (GetPropW(owner, kInstalled))
         return true;
     HMENU menu = GetMenu(owner);
@@ -133,7 +146,7 @@ bool InstallAboutMenu(HWND owner)
         RemoveWindowSubclass(owner, AboutWindow, kSubclass);
         return false;
     }
-    if (!AppendMenuW(help, MF_STRING, kAboutCommand, L"About Custom Obstacle Tool..."))
+    if (!AppendMenuW(help, MF_STRING, kAboutCommand, UiText("About Custom Obstacle Tool...")))
     {
         RemovePropW(owner, kInstalled);
         RemoveWindowSubclass(owner, AboutWindow, kSubclass);
