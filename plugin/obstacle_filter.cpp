@@ -803,6 +803,18 @@ namespace
         return false;
     }
 
+    bool IsRequestedDuneFiller(DWORD objectTemplate)
+    {
+        return SandDunesSelected() && IsDuneFillerTemplate(objectTemplate);
+    }
+
+    bool DuneFillTerrainAllowed(DWORD terrain)
+    {
+        terrain &= 63;
+        return terrain < kTerrainCount && terrain != 9 &&
+            (s_generationAllTerrains || terrain == 1);
+    }
+
     bool ApplySelectedObjectRules(DWORD record, DWORD objectTemplate, int buttonIndex)
     {
         bool custom = false;
@@ -876,7 +888,8 @@ namespace
 
         const int buttonIndex = ObstacleButtonIndexForObjectTemplate(objectTemplate);
         const bool allowed = s_duneFillActive
-            ? IsDuneFillerTemplate(objectTemplate)
+            ? IsRequestedDuneFiller(objectTemplate) &&
+                (!s_generationAllTerrains || ApplySelectedObjectRules(record, objectTemplate, buttonIndex))
             : !(SandDunesSelected() && IsDuneFillerTemplate(objectTemplate)) &&
                 IsObstacleButtonSelected(buttonIndex) &&
                 ApplySelectedObjectRules(record, objectTemplate, buttonIndex);
@@ -972,8 +985,9 @@ namespace
     bool ExpandSelectedTemplateTerrains(DWORD objectTemplate)
     {
         if (!s_generationAllTerrains ||
-            s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
-            !IsObstacleButtonSelected(ObstacleButtonIndexForObjectTemplate(objectTemplate))) return true;
+            s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection)) return true;
+        if (!IsObstacleButtonSelected(ObstacleButtonIndexForObjectTemplate(objectTemplate)) &&
+            !IsRequestedDuneFiller(objectTemplate)) return true;
         // The generator loads its own template records; never change editor/map caches.
         // Keep wrapper firstTerrain intact: native RandTrn matching has already finished.
         return SafeWriteDword(objectTemplate + 0x14, kAllObstacleTerrainMask) &&
@@ -1066,7 +1080,7 @@ namespace
             DWORD terrain = 0, flags = 0;
             if (!SafeReadDword(grid + 48 * i + 36, terrain) ||
                 !SafeReadDword(grid + 48 * i + 40, flags)) return;
-            s_dunePaintedCells[i] = (terrain & 63) == 1 &&
+            s_dunePaintedCells[i] = DuneFillTerrainAllowed(terrain) &&
                 (flags & 0x04000000) && !(flags & 0x08000000);
         }
         s_duneCapturedGenerator = generator;
@@ -1111,7 +1125,7 @@ namespace
                         if (!s_dunePaintedCells[index]) continue;
                         const DWORD cell = grid + 48 * index;
                         DWORD terrain = 0, flags = 0;
-                        if (!SafeReadDword(cell + 36, terrain) || (terrain & 63) != 1 ||
+                        if (!SafeReadDword(cell + 36, terrain) || !DuneFillTerrainAllowed(terrain) ||
                             !SafeReadDword(cell + 40, flags) ||
                             (flags & 0x08000000)) continue;
                         // Recheck native eligibility after every placement. The
@@ -1131,7 +1145,7 @@ namespace
             s_traceCandidateRow = 0;
             s_candidateTerrainMask = 0;
         }
-        LogFormat("Dune gap-fill pass: attempted %lu remaining painted Sand cells.", attempted);
+        LogFormat("Dune gap-fill pass: attempted %lu remaining painted eligible cells.", attempted);
     }
 
     __declspec(naked) void DuneFillPassHook()
@@ -1181,7 +1195,8 @@ namespace
         if (s_generationFilterMode != static_cast<LONG>(ObstacleGenerationFilterMode::ButtonSelection) ||
             !row || row != s_traceCandidateRow || terrain >= kTerrainCount || terrain == 9 ||
             !(s_candidateTerrainMask & (1u << terrain)) ||
-            !IsObstacleButtonSelected(s_traceCandidateButton)) return false;
+            !(IsObstacleButtonSelected(s_traceCandidateButton) ||
+                (s_duneFillActive && IsRequestedDuneFiller(s_candidateObjectTemplate)))) return false;
         DWORD holder = 0, weights = 0, weight = 0;
         return SafeReadDword(row + 4, holder) && SafeReadDword(holder, weights) &&
             SafeReadDword(weights + terrain * 4, weight) && static_cast<int>(weight) > -4000;

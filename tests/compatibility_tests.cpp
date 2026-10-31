@@ -208,6 +208,101 @@ namespace
         CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
         CHECK(candidate[4] == 0);
     }
+    DWORD s_fillAttemptMask = 0;
+    BOOL __fastcall DuneCellEligibleStub(DWORD cell, DWORD)
+    {
+        return (reinterpret_cast<DWORD*>(cell)[10] & 0x02000000) != 0;
+    }
+    void __fastcall DuneFillAttemptStub(DWORD generator, DWORD, int x, int, int, int)
+    {
+        s_fillAttemptMask |= 1u << x;
+        auto* cells = reinterpret_cast<DWORD*>(reinterpret_cast<DWORD*>(generator)[5]);
+        cells[12 * x + 10] &= ~0x02000000u;
+    }
+
+    void TestAllTerrainDuneFill()
+    {
+        SetCustomObstacleMode(true);
+        DWORD generator[9] = {};
+        DWORD cells[12][12] = {};
+        generator[5] = reinterpret_cast<DWORD>(cells);
+        generator[6] = 12; generator[7] = generator[8] = 1;
+        const DWORD oldGenerate = s_generateObstacleCell, oldEligible = s_obstacleCellEligible;
+        s_generateObstacleCell = reinterpret_cast<DWORD>(&DuneFillAttemptStub);
+        s_obstacleCellEligible = reinterpret_cast<DWORD>(&DuneCellEligibleStub);
+        for (bool enabled : { false, true, false })
+        {
+            SetAllObstacleTerrains(enabled);
+            SetObstacleButtonSelection(4, 0, 0, 0); // Dunes only; Sand Hills unchecked.
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+            for (DWORD terrain = 0; terrain < 12; ++terrain)
+            {
+                cells[terrain][9] = terrain | (23 << 6); // Transition view must not change actual terrain.
+                cells[terrain][10] = 0x06000000;
+                CHECK(DuneFillTerrainAllowed(terrain) == (terrain != 9 && (enabled || terrain == 1)));
+            }
+            CHECK(!DuneFillTerrainAllowed(12));
+            cells[2][10] |= 0x08000000; // Existing blocked tile.
+            cells[3][10] = 0x02000000;  // Not painted.
+            cells[10][10] = 0x04000000; // Painted, but native eligibility rejects it.
+            CaptureDunePaint(reinterpret_cast<DWORD>(generator));
+            CHECK(!s_dunePaintedCells[9] && !s_dunePaintedCells[2] && !s_dunePaintedCells[3]);
+            s_fillAttemptMask = 0;
+            FillDuneGaps(reinterpret_cast<DWORD>(generator));
+            const DWORD expected = enabled ? (0xDFFu & ~((1u<<2)|(1u<<3)|(1u<<10))) : 2;
+            CHECK(s_fillAttemptMask == expected);
+            CHECK(cells[9][10] == 0x06000000 && cells[2][10] == 0x0E000000 && cells[3][10] == 0x02000000);
+            CHECK(!s_duneFillActive && !s_duneCapturedGenerator);
+            FillDuneGaps(reinterpret_cast<DWORD>(generator));
+            CHECK(s_fillAttemptMask == expected); // Snapshot cannot be reused.
+            SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        }
+        s_generateObstacleCell = oldGenerate; s_obstacleCellEligible = oldEligible;
+
+        DWORD object[19] = {}, row[19] = {}, candidate[5] = {};
+        int weights[12], adjacent[201], overlap[201];
+        for (int& w : weights) w = -5000; weights[1] = 10;
+        for (int& w : adjacent) w = -5000;
+        for (int& w : overlap) w = -5000;
+        overlap[165] = 10; // Native small-dune/large-dune overlap allowance.
+        DWORD holder = reinterpret_cast<DWORD>(weights);
+        row[0] = 21; row[1] = reinterpret_cast<DWORD>(&holder);
+        row[12] = reinterpret_cast<DWORD>(adjacent); row[13] = row[12] + sizeof(adjacent);
+        row[16] = reinterpret_cast<DWORD>(overlap); row[17] = row[16] + sizeof(overlap);
+        object[0] = 7101; object[5] = 0xDFF; object[6] = 2; object[7] = 148;
+        RegisterObstacleButtonDefName(reinterpret_cast<DWORD>(object), reinterpret_cast<DWORD>("AVLdun10.def"));
+        candidate[0] = reinterpret_cast<DWORD>(object); candidate[1] = 1; candidate[4] = reinterpret_cast<DWORD>(row);
+        SetAllObstacleTerrains(true);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        SetObstacleButtonSelection(0, 0, 0, 0);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(candidate));
+        CHECK(object[6] == 2); // No parent selection: do not widen unselected filler.
+        SetObstacleButtonSelection(4, 0, 0, 0);
+        ApplyExtraObjectRandTrnFallback(reinterpret_cast<DWORD>(candidate));
+        CHECK(object[5] == 0xDFF && object[6] == 0xDFF);
+        CHECK(candidate[1] == 1 && candidate[4] == reinterpret_cast<DWORD>(row));
+        CHECK(!ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate))); // Main pass defers filler.
+        s_duneFillActive = true;
+        CHECK(ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        CHECK(candidate[4] != reinterpret_cast<DWORD>(row));
+        for (DWORD terrain = 0; terrain < 12; ++terrain)
+            CHECK(SelectedTerrainEdgeAllowed(candidate[4], terrain) == (terrain != 9));
+        const auto& rules = s_selectedObjectRules.at(reinterpret_cast<DWORD>(object));
+        for (DWORD terrain = 0; terrain < 12; ++terrain)
+            CHECK(rules.weights[terrain] == (terrain == 9 ? -5000 : terrain == 1 ? 10 : 5));
+        for (int i = 0; i < 201; ++i) CHECK(rules.overlap[i] == overlap[i]);
+        CHECK(weights[7] == -5000 && overlap[165] == 10);
+        s_duneFillActive = false;
+        CHECK(!SelectedTerrainEdgeAllowed(candidate[4], 7)); // Parent is only used during filler pass.
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::None);
+        SetAllObstacleTerrains(false);
+        SetCustomObstacleMode(false);
+        SetObstacleGenerationFilterMode(ObstacleGenerationFilterMode::ButtonSelection);
+        CaptureDunePaint(reinterpret_cast<DWORD>(generator));
+        CHECK(!s_duneCapturedGenerator && ShouldAllowFinalCandidateRecord(reinterpret_cast<DWORD>(candidate)));
+        SetCustomObstacleMode(true);
+    }
+
     void TestDuneFillPolicy()
     {
         DWORD object[19] = {};
@@ -619,6 +714,7 @@ int main()
     TestPredicateThunk();
     TestMountainOrder();
     TestDuneFillPolicy();
+    TestAllTerrainDuneFill();
     std::puts("PASS: painted map layers, terrain geometry, 1.8.1 profiles, byte guards, row filters/bounds, and x86 hook thunks.");
     return 0;
 }

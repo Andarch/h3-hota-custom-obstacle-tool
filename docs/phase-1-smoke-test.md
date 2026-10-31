@@ -26,7 +26,9 @@ using `tests/README.md`. Compare a direct editor launch with a fresh launch thro
 ## Placement adjustments
 
 - Mountains across terrain transitions and the accepted mountain-only order behavior.
-- Sand dune overlap and small-dune second-pass gap filling on painted Sand.
+- Sand dune overlap and small-dune second-pass gap filling: Sand-only normally,
+  all painted non-void terrains with Allow all terrains enabled. Include
+  Lava/Void and Water/Void boundaries with only Sand Dunes selected.
 - Workbook-only additions, borrowed rules and missing-row objects such as Maples.
 - Custom volcano minimap shade; return Standard to restore native colors.
 - Allow all terrains: unchecked at startup, clickable before/after painting, every

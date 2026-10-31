@@ -112,3 +112,11 @@ python tools/generate_translations.py --check
 
 Edit Russian values in `translations/ru.json`, then run the same command without
 `--check` to regenerate the compiled table and tester review list.
+
+All-terrain dune regressions cover Sand-only/all-terrain/Sand-only run snapshots,
+independence from Sand Hills selection, original painted scope, blocked and
+native-ineligible tiles, Void rejection, generator-owned filler-mask expansion,
+preserved native firstTerrain/row IDs, private scoring weights, unchanged overlap
+arrays, parent-approved terrain-edge handling only during the filler pass, and
+Standard-mode bypass. Native saved-terrain reproduction evidence is recorded in
+[the dune gap-fill notes](../docs/dune-all-terrain-gap-fill.md).

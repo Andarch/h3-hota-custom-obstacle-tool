@@ -133,8 +133,12 @@ Regenerate with:
 - Large Sand Dunes (type 140/subtype 6) use private self-overlap weight 30 while
   retaining native drawing-order checks. Selected Sand Dunes defer the small
   AVLdun10/20/30 templates (type 148/subtype 0) to a native second pass over remaining
-  painted Sand cells, independently of Sand Hills selection. Native eligibility
-  is rechecked; other terrains do not receive this filler. User accepted the result.
+  painted eligible cells, independently of Sand Hills selection. With Allow all
+  terrains off, this remains Sand-only. With it on, the captured run setting allows
+  all eleven non-void terrains. Filler templates inherit the selected Sand Dunes
+  parent's expanded masks, private scoring rows and actual-terrain edge handling.
+  Native firstTerrain/row matching, overlap bans, footprints, paint scope and Void
+  rejection remain in force. See docs/dune-all-terrain-gap-fill.md for reproduction.
 - Custom-only minimap fix: local type/color index 157 uses 158's blocked shade.
   Only display colors change; object types, footprints and passability are untouched.
 - Allow all terrains snapshots its setting per selected-generation run. After native
@@ -187,6 +191,14 @@ remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
   0x42B23E and 0x43C114 are used by the production scanner.
 
 ## Verification and release readiness
+
+- Dune boundary fix: reproduced 2-3 gaps per run using the terrain/view/flip data
+  from the user's saved 72x72 two-level obstacle_test.h3m (read-only copy). Gaps were
+  on non-Sand terrains, especially Lava/Water beside Void, excluded by the old
+  Sand-only filler. Patched repeated native runs have zero eligible gaps and zero
+  blocked footprints on Void. Debug/Release suites, English/Russian native probes,
+  and the existing all-terrain off/on/off regression pass. No new native patch
+  sites or modified native footprints/overlap arrays. Normal Debug/Release rebuilt.
 
 - Russian compatibility: Debug/Release tests and native startup/generation probes
   pass with the supplied Russian DLL and local English game data. User confirmed
