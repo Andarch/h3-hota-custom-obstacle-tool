@@ -1,6 +1,6 @@
 # Custom Obstacle Tool Handoff
 
-Last updated: 2026-10-31
+Last updated: 2026-11-01
 
 ## Current checkpoint
 
@@ -14,6 +14,13 @@ Last updated: 2026-10-31
   The launcher expects the DLL beside it. INI/log filenames remain
   `HotaMapEdPlugin.ini` and `HotaMapEdPlugin.log`; the internal initialization
   export remains `HotaMapEdPluginInitialize`.
+- Launcher icon: `launcher/app.rc` embeds `resources/app.ico` as icon group 1.
+  Run `python tools/build_app_icon.py` after changing the supplied RGBA PNGs in
+  `resources/icon-source/`. It packages all fourteen sizes (16, 20, 24, 30, 32,
+  36, 40, 48, 60, 64, 72, 80, 96, 256) without changing their PNG payloads.
+  Runtime verified: both Win32 Debug/Release builds contain every source image
+  byte-for-byte, and Windows CreateIconFromResourceEx decodes all fourteen sizes.
+  No separate icon file is required at runtime.
 - The solution remains `HotaMapEdPlugin.sln`; project/output references are relative.
   If this chat retains the pre-rename directory, pass the current root explicitly.
 - Latest cleanup removes obsolete generation modes, classifications, hard-coded
@@ -44,16 +51,23 @@ Last updated: 2026-10-31
   Mode radio widths account for translated text. Russian phrasing awaits tester review.
 - Help > About Custom Obstacle Tool... is available in both modes, after the
   existing native About item. The owner-thread menu subclass opens a centered
-  modal native dialog with v0.9.3, build configuration, author Andarch, description,
+  modal native dialog with v0.9.4, build configuration, author Andarch, description,
   GitHub repository link and OK. Escape closes it. The compact dialog is
   250x128 dialog units, with version and build on one row and 10-unit side margins.
   A private activation context enables the SysLink control independently of the
   editor's common-controls version.
+  The About dialog embeds the app icon in the DLL and displays the supplied
+  256px artwork scaled to a square at the upper right beside the product details.
+  Its width follows the dialog font/DPI (40 horizontal dialog units); the icon
+  handle is released on dialog destruction. Runtime verified in disposable
+  English/Russian dialogs: icon loads, stays square and clears the description;
+  both layouts visually inspected. Debug/Release builds and compatibility suites
+  pass. Normal Release outputs were rebuilt after the editor closed.
   Runtime verified: native WM_INITMENUPOPUP disables unknown commands (state 3).
   The subclass delegates first, then enables only the tool's About command, leaving
   native command states intact. Startup/direct WM_COMMAND tests alone miss this.
 - `resources/version.h` defines the shared dialog/product version and binary
-  metadata. EXE and DLL have numeric file version 0.9.3.0 and product version v0.9.3.
+  metadata. EXE and DLL have numeric file version 0.9.4.0 and product version v0.9.4.
   `resources/version.rc` is compiled into both; `plugin/about.rc` holds the dialog.
 
 - Standard is the startup mode: native generation and enablement;

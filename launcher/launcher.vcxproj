@@ -91,7 +91,9 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ResourceCompile Include="app.rc" />
     <ResourceCompile Include="..\resources\version.rc" />
+    <None Include="..\resources\app.ico" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\shared\localization.cpp">

@@ -21,6 +21,26 @@ namespace
     {
         if (message == WM_INITDIALOG)
         {
+            const HINSTANCE module = reinterpret_cast<HINSTANCE>(
+                GetWindowLongPtrW(dialog, GWLP_HINSTANCE));
+            HWND iconControl = GetDlgItem(dialog, IDC_TOOL_ICON);
+            RECT iconBounds{};
+            GetWindowRect(iconControl, &iconBounds);
+            const int iconSize = iconBounds.right - iconBounds.left;
+            // Start from the supplied 256px artwork and scale to the dialog font/DPI.
+            HICON source = reinterpret_cast<HICON>(LoadImageW(module,
+                MAKEINTRESOURCEW(IDI_TOOL_ICON), IMAGE_ICON, 256, 256, 0));
+            HICON icon = source ? reinterpret_cast<HICON>(CopyImage(source,
+                IMAGE_ICON, iconSize, iconSize, 0)) : nullptr;
+            if (source) DestroyIcon(source);
+            if (icon)
+            {
+                SetWindowPos(iconControl, nullptr, 0, 0, iconSize, iconSize,
+                    SWP_NOMOVE | SWP_NOZORDER);
+                SendMessageW(iconControl, STM_SETICON, reinterpret_cast<WPARAM>(icon), 0);
+            }
+            else
+                LogFormat("About icon failed, gle=%lu.", GetLastError());
             SetWindowTextW(dialog, UiText("About Custom Obstacle Tool"));
 #ifdef _DEBUG
             SetDlgItemTextW(dialog, IDC_TOOL_BUILD, UiText("Debug Build"));
@@ -46,6 +66,12 @@ namespace
             y = max(monitor.rcWork.top, min(y, monitor.rcWork.bottom - height));
             SetWindowPos(dialog, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             return TRUE;
+        }
+        if (message == WM_DESTROY)
+        {
+            HICON icon = reinterpret_cast<HICON>(SendDlgItemMessageW(dialog,
+                IDC_TOOL_ICON, STM_SETICON, 0, 0));
+            if (icon) DestroyIcon(icon);
         }
         if (message == WM_COMMAND && (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL))
         {

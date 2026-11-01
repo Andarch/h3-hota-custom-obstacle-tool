@@ -22,17 +22,19 @@ Subterranean Lava DEFs are AVLlv1u0/2u0/3u0.def. Counts and membership were
 cross-checked against the existing generated workbook mappings and native
 HotA 1.8.1 edobjts identities; no workbook edits or extra DEF mappings are needed.
 
-## Current fix and verification
+## Historical fix and current policy
 
-The initial lava fix maps local index 127 to the blocked index 128 in Custom
+The initial lava fix mapped local index 127 to the blocked index 128 in Custom
 mode, alongside the original volcano correction. The subsequent full minimap
-audit extends this policy to other affected obstacle classes and checks the
-actual definition's blocking mask to preserve fully passable decorations.
+audit extended this policy to other affected obstacle classes and added checks
+of the actual definition's blocking mask to preserve fully passable decorations.
+Corrections now apply in both Standard and Custom modes, including after
+switching back to Standard.
 See [the full audit](minimap-color-audit.md) for the current implementation,
 coverage and native validation.
 
 Stored object types, map data, passability, generation and shared palettes remain
-unchanged. Standard retains native colors. The existing hook and expected bytes
+unchanged. Standard retains native obstacle placement. The existing hook and expected bytes
 are unchanged; original game files are not modified.
 
 Initial lava-only evidence remains under ignored scratch/lava_minimap_probe.cpp,

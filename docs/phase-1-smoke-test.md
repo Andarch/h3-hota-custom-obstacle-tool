@@ -8,7 +8,8 @@ using `tests/README.md`. Compare a direct editor launch with a fresh launch thro
 
 - Startup, shortcuts, new/open/save/save-as, map validation and close.
 - Native object limits and normal manual object placement remain unchanged.
-- Standard startup: native obstacle placement, command enablement and minimap colors.
+- Standard startup: native obstacle placement and command enablement, with corrected
+  blocked minimap shades.
 - Standard/Custom clicks and tooltips preserve focus, shortcuts and remembered settings.
 
 ## Custom obstacle controls
@@ -30,8 +31,9 @@ using `tests/README.md`. Compare a direct editor launch with a fresh launch thro
   all painted non-void terrains with Allow all terrains enabled. Include
   Lava/Void and Water/Void boundaries with only Sand Dunes selected.
 - Workbook-only additions, borrowed rules and missing-row objects such as Maples.
-- Custom blocked minimap shades for supported obstacles, including flowers/plants,
-  lava and volcanoes; preserve passable decorations and native Standard colors.
+- Corrected blocked minimap shades in Standard/Custom/Standard for supported
+  obstacles, including flowers/plants, lava and volcanoes; fully passable
+  decorations retain their native colors in both modes.
 - Allow all terrains: unchecked at startup, clickable before/after painting, every
   button applies to non-void paint and previews show all eleven terrains.
 - Exercise mountains on Water, reefs on Grass, underground, mixed terrains and Void.
