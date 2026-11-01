@@ -276,7 +276,7 @@ void TestObstacleCategorySections()
     GetClientRect(host, &hostRect);
     MapWindowPoints(nullptr, host, reinterpret_cast<POINT*>(&toggleRect), 2);
     CHECK_SELECTION(!(GetWindowLongA(host, GWL_STYLE) & WS_VSCROLL));
-    CHECK_SELECTION(toggleRect.right == hostRect.right - GetSystemMetrics(SM_CXVSCROLL));
+    CHECK_SELECTION(toggleRect.left == -2);
     CHECK_SELECTION(toggleRect.right - toggleRect.left == kGlobalSelectionButtonExtent);
     const int toggleLeft = toggleRect.left;
     const int toggleTop = toggleRect.top;

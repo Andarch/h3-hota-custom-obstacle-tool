@@ -85,7 +85,14 @@ Last updated: 2026-11-01
   selections. All 121 buttons start selected, as defined by the workbook.
 - Fixed controls below Mode: Allow all terrains, global Select All/None and a
   28x28 double-chevron Expand All/Collapse All button. Category controls are 18x18.
-  Only categories scroll. Reserve scrollbar width so the toggle never jumps sideways.
+  Only categories scroll. Fixed controls stay aligned when the scrollbar appears.
+  Expand/Collapse All is on the left, matching the category expansion arrows.
+  Global and category Select All/None are on the right, with each minus button's
+  right edge 2px beyond the fourth obstacle column (162px from the grid origin).
+  Expand/Collapse All starts 2px left of the grid; its host extends left to avoid
+  clipping. The checkbox stays in place, with 4px extra space before the global
+  buttons and everything below them shifted down 4px.
+  Both Win32 builds and compatibility suites pass after the layout change.
   There is no Obstacle Types label. Global selections include collapsed/disabled buttons.
 - Mode, selected buttons, expansion and terrain option survive mode/tool/panel
   changes within a session; they are not saved across editor restarts.

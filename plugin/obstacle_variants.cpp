@@ -21,6 +21,7 @@ namespace
     constexpr char kVariantUiEnvVar[] = "HOTA_MAPED_PLUGIN_OBSTACLE_VARIANTS";
     constexpr UINT kVanillaPlaceObstaclesCommand = 32927;
     constexpr int kCategoryButtonExtent = 40;
+    constexpr int kCategoryGridWidth = 4 * kCategoryButtonExtent;
     constexpr int kSelectionButtonExtent = 18;
     constexpr int kSelectionRowHeight = 22;
     constexpr int kSelectionCommandBase = 4100;
@@ -30,7 +31,9 @@ namespace
     constexpr int kGlobalSelectionButtonExtent = 28;
     constexpr int kAllTerrainsCommand = 4190;
     constexpr int kAllTerrainsOptionHeight = 24;
-    constexpr int kGlobalSelectionRowHeight = 36 + kAllTerrainsOptionHeight;
+    constexpr int kGlobalButtonsTop = kAllTerrainsOptionHeight + 4;
+    constexpr int kGlobalSelectionRowHeight = 36 + kGlobalButtonsTop;
+    constexpr int kGlobalHostLeftInset = 2;
     constexpr int kCategoryGlyphExtent = 24;
     constexpr int kCategoryRowGap = 4;
     constexpr int kCategoryHeaderHeight = 24;
@@ -1468,9 +1471,8 @@ namespace
         SetScrollInfo(hwnd, SB_VERT, &info, TRUE);
         // Scrollbar visibility may change the available header width.
         GetClientRect(hwnd, &client);
-        // Reserve the scrollbar's space even while it is hidden so the global
-        // expansion control keeps the same horizontal position on expansion.
-        const int expansionRight = client.right -
+        // Keep the terrain checkbox width stable when the scrollbar is hidden.
+        const int contentRight = client.right -
             ((GetWindowLongA(hwnd, GWL_STYLE) & WS_VSCROLL) ? 0 : GetSystemMetrics(SM_CXVSCROLL));
 
         const UINT positionFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
@@ -1479,8 +1481,10 @@ namespace
             RECT viewport = {};
             GetWindowRect(hwnd, &viewport);
             MapWindowPoints(nullptr, GetParent(hwnd), reinterpret_cast<POINT*>(&viewport), 2);
-            SetWindowPos(state.globalHost, nullptr, viewport.left,
-                viewport.top - kGlobalSelectionRowHeight, viewport.right - viewport.left,
+            // Extend the host left so the expansion button can move without clipping.
+            SetWindowPos(state.globalHost, nullptr, viewport.left - kGlobalHostLeftInset,
+                viewport.top - kGlobalSelectionRowHeight,
+                viewport.right - viewport.left + kGlobalHostLeftInset,
                 kGlobalSelectionRowHeight, positionFlags);
         }
         for (int index = 0; index < kObstacleButtonCount; ++index)
@@ -1531,17 +1535,18 @@ namespace
         }
 
         if (state.allTerrainsCheckbox)
-            SetWindowPos(state.allTerrainsCheckbox, nullptr, 0, 0,
-                expansionRight > 0 ? expansionRight : 1, kAllTerrainsOptionHeight, positionFlags);
+            SetWindowPos(state.allTerrainsCheckbox, nullptr, kGlobalHostLeftInset, 0,
+                contentRight > 0 ? contentRight : 1, kAllTerrainsOptionHeight, positionFlags);
         for (int index = 0; index < kSelectionActionCount; ++index)
         {
             const bool global = index >= kGlobalSelectionAction;
             const int extent = global ? kGlobalSelectionButtonExtent : kSelectionButtonExtent;
             if (state.selectionButtons[index])
                 SetWindowPos(state.selectionButtons[index], nullptr,
-                    index == kExpansionAction ? (expansionRight > extent ? expansionRight - extent : 0) :
-                        (index % 2) * (extent + (global ? 12 : 6)),
-                    global ? kAllTerrainsOptionHeight : state.selectionY[index / 2] - state.scrollPosition,
+                    index == kExpansionAction ? 0 :
+                        kCategoryGridWidth - extent - ((index % 2) ? 0 : extent + (global ? 12 : 6)) +
+                            2 + (global ? kGlobalHostLeftInset : 0),
+                    global ? kGlobalButtonsTop : state.selectionY[index / 2] - state.scrollPosition,
                     extent, extent, positionFlags |
                     (global || s_categoryExpanded[index / 2] ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
         }

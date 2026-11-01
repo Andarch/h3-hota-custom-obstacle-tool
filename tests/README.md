@@ -37,7 +37,7 @@ Global Select All/None cases verify larger control dimensions, all 121 selection
 including collapsed/terrain-disabled buttons, header counts, preserved expansion,
 and focus-preserving clicks.
 
-The expansion toggle tests cover stable alignment with scrollbar space reserved,
+The expansion toggle tests cover stable alignment at the left edge,
 unchanged horizontal position as the scrollbar appears/disappears, Expand All/Collapse All
 tooltips, individual header changes, mixed states, obstacle visibility, unchanged
 selections and focus, and scrollbar clamping after collapsing every section.
