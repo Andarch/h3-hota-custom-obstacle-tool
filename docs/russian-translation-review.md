@@ -1,7 +1,5 @@
 # Russian translation review
 
-Edit `translations/ru.json`, then run `python tools/generate_translations.py`.
-Edit only the Russian values; keep the English keys unchanged.
 These are draft translations for native-speaker review. Product names, filenames,
 keyboard shortcuts, DEF identifiers and diagnostic logs retain their original spelling.
 
