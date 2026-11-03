@@ -30,9 +30,17 @@ namespace
     constexpr int kSelectionActionCount = kExpansionAction + 1;
     constexpr int kGlobalSelectionButtonExtent = 28;
     constexpr int kAllTerrainsCommand = 4190;
-    constexpr int kAllTerrainsOptionHeight = 24;
-    constexpr int kGlobalButtonsTop = kAllTerrainsOptionHeight + 4;
-    constexpr int kGlobalSelectionRowHeight = 36 + kGlobalButtonsTop;
+    constexpr int kModeRadioHeight = 22;
+
+    int AllTerrainsOptionHeight()
+    {
+        return CurrentUiLanguage() == UiLanguage::Russian ? 36 : 24;
+    }
+
+    int GlobalSelectionRowHeight()
+    {
+        return AllTerrainsOptionHeight() + 4 + 36;
+    }
     constexpr int kGlobalHostLeftInset = 2;
     constexpr int kCategoryGlyphExtent = 24;
     constexpr int kCategoryRowGap = 4;
@@ -1483,9 +1491,9 @@ namespace
             MapWindowPoints(nullptr, GetParent(hwnd), reinterpret_cast<POINT*>(&viewport), 2);
             // Extend the host left so the expansion button can move without clipping.
             SetWindowPos(state.globalHost, nullptr, viewport.left - kGlobalHostLeftInset,
-                viewport.top - kGlobalSelectionRowHeight,
+                viewport.top - GlobalSelectionRowHeight(),
                 viewport.right - viewport.left + kGlobalHostLeftInset,
-                kGlobalSelectionRowHeight, positionFlags);
+                GlobalSelectionRowHeight(), positionFlags);
         }
         for (int index = 0; index < kObstacleButtonCount; ++index)
         {
@@ -1536,7 +1544,7 @@ namespace
 
         if (state.allTerrainsCheckbox)
             SetWindowPos(state.allTerrainsCheckbox, nullptr, kGlobalHostLeftInset, 0,
-                contentRight > 0 ? contentRight : 1, kAllTerrainsOptionHeight, positionFlags);
+                contentRight > 0 ? contentRight : 1, AllTerrainsOptionHeight(), positionFlags);
         for (int index = 0; index < kSelectionActionCount; ++index)
         {
             const bool global = index >= kGlobalSelectionAction;
@@ -1546,7 +1554,7 @@ namespace
                     index == kExpansionAction ? 0 :
                         kCategoryGridWidth - extent - ((index % 2) ? 0 : extent + (global ? 12 : 6)) +
                             2 + (global ? kGlobalHostLeftInset : 0),
-                    global ? kGlobalButtonsTop : state.selectionY[index / 2] - state.scrollPosition,
+                    global ? (AllTerrainsOptionHeight() + 4) : state.selectionY[index / 2] - state.scrollPosition,
                     extent, extent, positionFlags |
                     (global || s_categoryExpanded[index / 2] ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
         }
@@ -1693,7 +1701,7 @@ namespace
         auto* state = new (std::nothrow) ModeHostState();
         if (!state) return nullptr;
         HWND host = CreateWindowExA(0, windowClass.lpszClassName, "",
-            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, 22,
+            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, kModeRadioHeight,
             parent, nullptr, s_pluginModule, state);
         if (!host) { delete state; return nullptr; }
         state->tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
@@ -1716,13 +1724,17 @@ namespace
         }
         SelectObject(textDc, oldFont);
         ReleaseDC(host, textDc);
-        const int radioWidth = min(width / 2, desiredRadioWidth);
+        const bool stackRadios = desiredRadioWidth * 2 > width;
+        const int radioWidth = stackRadios ? width : desiredRadioWidth;
+        if (stackRadios)
+            SetWindowPos(host, nullptr, 0, 0, width, 2 * kModeRadioHeight,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         for (int index = 0; created && index < 2; ++index)
         {
-            // Keep the options together on wide panels and fit narrow panels.
             state->radios[index] = CreateWindowExW(0, L"BUTTON", UiText(index ? "Custom" : "Standard"),
-                WS_CHILD | WS_VISIBLE | BS_RADIOBUTTON, index * radioWidth, 0,
-                radioWidth, 22, host, reinterpret_cast<HMENU>(static_cast<INT_PTR>(index + 1)),
+                WS_CHILD | WS_VISIBLE | BS_RADIOBUTTON,
+                stackRadios ? 0 : index * radioWidth, stackRadios ? index * kModeRadioHeight : 0,
+                radioWidth, kModeRadioHeight, host, reinterpret_cast<HMENU>(static_cast<INT_PTR>(index + 1)),
                 s_pluginModule, nullptr);
             HWND radio = state->radios[index];
             if (!radio || !SetWindowSubclass(radio, SelectionButtonSubclass, 1, 0))
@@ -2149,10 +2161,10 @@ namespace
             // layout finish and RefreshCategoryButtons applies the mode.
             WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VSCROLL,
             rect.left,
-            rect.top + kGlobalSelectionRowHeight,
+            rect.top + GlobalSelectionRowHeight(),
             rect.right - rect.left,
-            (rect.bottom - rect.top > kGlobalSelectionRowHeight)
-                ? rect.bottom - rect.top - kGlobalSelectionRowHeight : 1,
+            (rect.bottom - rect.top > GlobalSelectionRowHeight())
+                ? rect.bottom - rect.top - GlobalSelectionRowHeight() : 1,
             parent,
             nullptr,
             s_pluginModule,
@@ -2164,7 +2176,7 @@ namespace
         }
         state->globalHost = CreateWindowExA(0, "STATIC", nullptr,
             WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-            rect.left, rect.top, rect.right - rect.left, kGlobalSelectionRowHeight,
+            rect.left, rect.top, rect.right - rect.left, GlobalSelectionRowHeight(),
             parent, nullptr, s_pluginModule, nullptr);
         if (!state->globalHost || !SetWindowSubclass(state->globalHost,
             GlobalControlsSubclass, 1, reinterpret_cast<DWORD_PTR>(hwnd)))
@@ -2173,8 +2185,8 @@ namespace
             return nullptr;
         }
         state->allTerrainsCheckbox = CreateWindowExW(0, L"BUTTON", UiText("Allow all terrains"),
-            WS_CHILD | WS_VISIBLE | BS_CHECKBOX, 0, 0, rect.right - rect.left,
-            kAllTerrainsOptionHeight, state->globalHost,
+            WS_CHILD | WS_VISIBLE | BS_CHECKBOX | BS_MULTILINE, 0, 0, rect.right - rect.left,
+            AllTerrainsOptionHeight(), state->globalHost,
             reinterpret_cast<HMENU>(kAllTerrainsCommand), s_pluginModule, nullptr);
         if (!state->allTerrainsCheckbox || !SetWindowSubclass(state->allTerrainsCheckbox,
             SelectionButtonSubclass, 1, 0))
@@ -2596,7 +2608,7 @@ namespace
         const int modeLabelY = brushToolbarRect.bottom + sectionGap;
         const int labelHeight = brushLabelRect.bottom - brushLabelRect.top;
         const int labelWidth = parentClient.right - brushLabelRect.left - 6;
-        const int firstRowY = modeLabelY + labelHeight + 22 + sectionGap;
+        const int firstRowY = modeLabelY + labelHeight + kModeRadioHeight + sectionGap;
         RECT scrollRect =
         {
             x,
@@ -2617,7 +2629,6 @@ namespace
             return false;
         }
 
-        panel.scrollHost = CreateScrollHost(parent, scrollRect);
         HFONT brushFont = reinterpret_cast<HFONT>(SendMessageA(brushLabel, WM_GETFONT, 0, 0));
         panel.modeLabel = CreateWindowExW(0, L"STATIC", UiText("Mode"),
             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
@@ -2626,6 +2637,13 @@ namespace
             SendMessageA(panel.modeLabel, WM_SETFONT, reinterpret_cast<WPARAM>(brushFont), TRUE);
         panel.modeHost = CreateModeHost(parent, x, modeLabelY + labelHeight,
             scrollRect.right - scrollRect.left, brushFont);
+        RECT modeBounds{};
+        if (panel.modeHost && GetClientRect(panel.modeHost, &modeBounds))
+        {
+            scrollRect.top += modeBounds.bottom - kModeRadioHeight;
+            if (scrollRect.bottom > scrollRect.top)
+                panel.scrollHost = CreateScrollHost(parent, scrollRect);
+        }
         bool createdAll = panel.scrollHost && panel.modeLabel && panel.modeHost;
         ScrollHostState* scrollState = panel.scrollHost
             ? ScrollHostStateFromWindow(panel.scrollHost)

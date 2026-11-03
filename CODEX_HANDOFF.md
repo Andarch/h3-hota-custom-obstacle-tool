@@ -1,6 +1,6 @@
 # Custom Obstacle Tool Handoff
 
-Last updated: 2026-11-01
+Last updated: 2026-11-02
 
 ## Current checkpoint
 
@@ -48,10 +48,10 @@ Last updated: 2026-11-01
   Runtime verified: the host's common-controls v5 rejects sizeof(TOOLINFOW)=48 for
   TTM_ADDTOOLW but accepts TTTOOLINFOW_V2_SIZE=44. Use V2 for these tooltip messages.
   Preview captions wrap to measured height and move terrain icons down accordingly.
-  Mode radio widths account for translated text. Russian phrasing awaits tester review.
+  Mode radio widths account for translated text. Russian wording incorporates the 13 corrections from PR #2.
 - Help > About Custom Obstacle Tool... is available in both modes, after the
   existing native About item. The owner-thread menu subclass opens a centered
-  modal native dialog with v0.9.4, build configuration, author Andarch, description,
+  modal native dialog with v0.9.5, build configuration, author Andarch, description,
   GitHub repository link and OK. Escape closes it. The compact dialog is
   250x128 dialog units, with version and build on one row and 10-unit side margins.
   A private activation context enables the SysLink control independently of the
@@ -67,7 +67,7 @@ Last updated: 2026-11-01
   The subclass delegates first, then enables only the tool's About command, leaving
   native command states intact. Startup/direct WM_COMMAND tests alone miss this.
 - `resources/version.h` defines the shared dialog/product version and binary
-  metadata. EXE and DLL have numeric file version 0.9.4.0 and product version v0.9.4.
+  metadata. EXE and DLL have numeric file version 0.9.5.0 and product version v0.9.5.
   `resources/version.rc` is compiled into both; `plugin/about.rc` holds the dialog.
 
 - Standard is the startup mode: native generation and enablement;
@@ -321,8 +321,7 @@ remain mandatory. Current profiles live in `plugin/target_profile.cpp`.
   dialog was verified in Russian on English Windows using installation Language=1.
   Russian About/panel/preview layouts were visually inspected. Isolated production
   startup passes with both module profiles and English data. User confirmed the
-  Release localization build works in the fully Russian VM; native-speaker wording
-  review remains pending. A missing ucrtbased.dll error came from using Debug;
+  Release localization build works in the fully Russian VM; the wording review in PR #2 is synced into the v0.9.5 build. A missing ucrtbased.dll error came from using Debug;
   verified Release EXE/DLL imports do not depend on the debug runtime.
 - About addition: Debug/Release builds and compatibility suites pass, including
   native-menu preservation, duplicate-install prevention, actual modal resource,

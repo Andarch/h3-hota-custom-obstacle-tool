@@ -1,7 +1,7 @@
 #pragma once
-#define TOOL_VERSION_NUM 0,9,4,0
-#define TOOL_VERSION_STRING "0.9.4.0"
-#define TOOL_VERSION_DISPLAY "v0.9.4"
+#define TOOL_VERSION_NUM 0,9,5,0
+#define TOOL_VERSION_STRING "0.9.5.0"
+#define TOOL_VERSION_DISPLAY "v0.9.5"
 #define TOOL_PRODUCT "HotA Custom Obstacle Tool"
 #define TOOL_AUTHOR "Andarch"
 #define TOOL_CREDIT "By Andarch"

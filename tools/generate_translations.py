@@ -9,9 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def generate(check=False):
     groups = json.loads((ROOT / "translations/ru.json").read_text(encoding="utf-8"))
     entries = {}
-    lines = ["# Russian translation review", "", "Edit `translations/ru.json`, then run `python tools/generate_translations.py`.",
-             "Edit only the Russian values; keep the English keys unchanged.",
-             "These are draft translations for native-speaker review. Product names, filenames,", "keyboard shortcuts, DEF identifiers and diagnostic logs retain their original spelling.", ""]
+    lines = ["# Russian translation review", ""]
     for group, strings in groups.items():
         lines += ["## " + group.capitalize(), "", "| English | Russian |", "| --- | --- |"]
         for english, russian in strings.items():
