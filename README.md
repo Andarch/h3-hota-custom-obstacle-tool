@@ -1,6 +1,6 @@
 # HotA Custom Obstacle Tool
 
-**[Download v0.9.4](https://github.com/Andarch/h3-hota-custom-obstacle-tool/releases/download/v0.9.4/HotACustomObstacleTool-v0.9.4.zip)**
+**[Download v0.9.5](https://github.com/Andarch/h3-hota-custom-obstacle-tool/releases/download/v0.9.5/HotACustomObstacleTool-v0.9.5.zip)**
 
 Supports HotA 1.8.1 in English and Russian  
 Поддерживает HotA 1.8.1 на английском и русском языках
